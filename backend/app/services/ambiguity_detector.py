@@ -110,7 +110,7 @@ def detect_ambiguities(ir: WorkflowIR) -> list[Violation]:
         # Check for vague action verbs
         action_lower = step.action.lower().strip()
         for vague_verb, explanation in VAGUE_ACTIONS.items():
-            if vague_verb in action_lower:
+            if re.search(r'\b' + re.escape(vague_verb) + r'\b', action_lower):
                 violations.append(Violation(
                     check_type="ambiguity",
                     severity="medium",

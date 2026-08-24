@@ -12,6 +12,11 @@ export const verifyPolicy = async (policyText, scenario = null) => {
   return response.data;
 };
 
+export const verifyVendor = async (vendorName) => {
+  const response = await api.post('/vendor/verify', { vendor_name: vendorName });
+  return response.data;
+};
+
 export const parsePolicy = async (policyText, scenario = null) => {
   const response = await api.post('/parse', { policy_text: policyText, scenario });
   return response.data;

@@ -27,6 +27,7 @@ from app.services.what_if_simulator import simulate_what_if, get_available_scena
 from app.services import execution_simulator
 from app.services.rbac_engine import get_role_permissions, get_role_hierarchy
 from app.services import compliance_engine
+from app.services.vendor_verifier import verify_vendor_signals
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -59,10 +60,13 @@ async def api_verify_policy(
         if db_rules:
             active_rules = [
                 ComplianceRule(
+                    id=r.id,
                     name=r.name,
-                    description=r.description,
-                    condition=r.condition,
-                    required_action=r.required_action,
+                    description=r.description or "",
+                    rule_type=getattr(r, "rule_type", "threshold") or "threshold",
+                    threshold=getattr(r, "threshold", None),
+                    condition=r.condition or "",
+                    required_action=r.required_action or "",
                     severity=r.severity,
                     active=r.active
                 )
@@ -165,6 +169,21 @@ async def api_run_scenario(
     
     text = scenarios[scenario_id]["text"]
     return await api_verify_policy(policy_text=text, scenario=scenario_id, db=db)
+
+
+# --------------------------------------------------------------------------- #
+# 2.5 Dynamic Vendor Verification Endpoint
+# --------------------------------------------------------------------------- #
+
+@router.post("/vendor/verify")
+async def api_verify_vendor(
+    vendor_name: str = Body(..., embed=True)
+):
+    """
+    Dynamically verify any vendor using multi-tier public/authoritative registries.
+    Returns structured evidence list, source references, and an Evidence-Based Risk Assessment (0-100).
+    """
+    return verify_vendor_signals(vendor_name)
 
 
 # --------------------------------------------------------------------------- #

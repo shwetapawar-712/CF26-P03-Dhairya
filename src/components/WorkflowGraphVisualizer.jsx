@@ -37,9 +37,11 @@ const ActionNode = ({ data }) => {
   } else if (data.status === 'running') {
     statusBorder = 'border-indigo-400 ring-2 ring-indigo-400/50 animate-pulse';
     statusIcon = <Clock className="w-3.5 h-3.5 text-indigo-400 animate-spin" />;
-  } else if (data.status === 'rejected') {
+  } else if (data.status === 'rejected' || data.status === 'blocked') {
     statusBorder = 'border-rose-500 ring-2 ring-rose-500/40';
     statusIcon = <XCircle className="w-3.5 h-3.5 text-rose-400" />;
+  } else if (data.status === 'locked') {
+    statusBorder = 'border-slate-600 opacity-60';
   }
 
   return (
@@ -57,20 +59,37 @@ const ActionNode = ({ data }) => {
       <Handle type="source" position={Position.Bottom} className="w-2.5 h-2.5 !bg-indigo-500" />
     </div>
   );
-
 };
 
 const ApprovalNode = ({ data }) => {
   let statusBorder = 'border-purple-500';
-  if (data.status === 'completed') statusBorder = 'border-emerald-500 ring-2 ring-emerald-500/30';
-  if (data.status === 'running') statusBorder = 'border-purple-400 ring-2 ring-purple-400/50 animate-pulse';
+  let statusIcon = null;
+
+  if (data.status === 'completed') {
+    statusBorder = 'border-emerald-500 ring-2 ring-emerald-500/30';
+    statusIcon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />;
+  } else if (data.status === 'waiting_for_approval') {
+    statusBorder = 'border-amber-400 ring-2 ring-amber-400/60 animate-pulse';
+    statusIcon = <Clock className="w-3.5 h-3.5 text-amber-400 animate-pulse" />;
+  } else if (data.status === 'running') {
+    statusBorder = 'border-purple-400 ring-2 ring-purple-400/50 animate-pulse';
+    statusIcon = <Clock className="w-3.5 h-3.5 text-purple-400 animate-spin" />;
+  } else if (data.status === 'rejected' || data.status === 'blocked') {
+    statusBorder = 'border-rose-500 ring-2 ring-rose-500/40';
+    statusIcon = <XCircle className="w-3.5 h-3.5 text-rose-400" />;
+  } else if (data.status === 'locked') {
+    statusBorder = 'border-slate-700 opacity-60';
+  }
 
   return (
     <div className={`px-4 py-3 rounded-xl bg-purple-950/40 border-2 ${statusBorder} text-purple-100 text-xs shadow-xl min-w-[180px]`}>
       <Handle type="target" position={Position.Top} className="w-2.5 h-2.5 !bg-purple-500" />
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <ShieldCheck className="w-4 h-4 text-purple-400" />
-        <span className="font-bold text-xs text-purple-200 leading-snug">{data.label}</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <ShieldCheck className="w-4 h-4 text-purple-400" />
+          <span className="font-bold text-xs text-purple-200 leading-snug">{data.label}</span>
+        </div>
+        {statusIcon}
       </div>
       {data.role && (
         <span className="badge badge-purple text-[9px] py-0.5 px-2">
@@ -82,21 +101,37 @@ const ApprovalNode = ({ data }) => {
   );
 };
 
-const DecisionNode = ({ data }) => (
-  <div className="px-4 py-3 rounded-xl bg-amber-950/40 border-2 border-amber-500 text-amber-100 text-xs shadow-xl min-w-[170px]">
-    <Handle type="target" position={Position.Top} className="w-2.5 h-2.5 !bg-amber-500" />
-    <div className="flex items-center gap-1.5 mb-1">
-      <HelpCircle className="w-4 h-4 text-amber-400" />
-      <span className="font-bold text-xs text-amber-200 leading-snug">{data.label}</span>
+const DecisionNode = ({ data }) => {
+  let statusBorder = 'border-amber-500';
+  let statusIcon = null;
+
+  if (data.status === 'completed') {
+    statusBorder = 'border-emerald-500 ring-2 ring-emerald-500/30';
+    statusIcon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />;
+  } else if (data.status === 'rejected' || data.status === 'blocked') {
+    statusBorder = 'border-rose-500 ring-2 ring-rose-500/40';
+    statusIcon = <XCircle className="w-3.5 h-3.5 text-rose-400" />;
+  }
+
+  return (
+    <div className={`px-4 py-3 rounded-xl bg-amber-950/40 border-2 ${statusBorder} text-amber-100 text-xs shadow-xl min-w-[170px]`}>
+      <Handle type="target" position={Position.Top} className="w-2.5 h-2.5 !bg-amber-500" />
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5">
+          <HelpCircle className="w-4 h-4 text-amber-400" />
+          <span className="font-bold text-xs text-amber-200 leading-snug">{data.label}</span>
+        </div>
+        {statusIcon}
+      </div>
+      {data.role && (
+        <span className="badge badge-yellow text-[9px] py-0.5 px-2">
+          {data.role}
+        </span>
+      )}
+      <Handle type="source" position={Position.Bottom} className="w-2.5 h-2.5 !bg-amber-500" />
     </div>
-    {data.role && (
-      <span className="badge badge-yellow text-[9px] py-0.5 px-2">
-        {data.role}
-      </span>
-    )}
-    <Handle type="source" position={Position.Bottom} className="w-2.5 h-2.5 !bg-amber-500" />
-  </div>
-);
+  );
+};
 
 export default function WorkflowGraphVisualizer({ graphData, workflowIr, executionState, onNodeClick }) {
   const nodeTypes = useMemo(

@@ -2,11 +2,18 @@ p, finance_manager, finance_approval, approve
 p, finance_manager, finance_approval, execute
 p, finance_manager, check_budget, execute
 p, finance_manager, check_budget, approve
+p, finance_officer, finance_approval, approve
+p, finance_officer, finance_approval, execute
+p, finance_officer, check_budget, execute
+p, procurement_officer, identify_vendor, execute
 p, procurement_officer, verify_vendor, execute
 p, procurement_officer, vendor_verification, execute
 p, procurement_officer, create_procurement_ticket, execute
 p, procurement_officer, create_ticket, execute
+p, procurement_officer, create_purchase_order, execute
 p, procurement_officer, process_order, execute
+p, compliance_officer, verify_vendor, execute
+p, compliance_officer, vendor_verification, execute
 p, department_head, check_budget, execute
 p, department_head, check_budget, approve
 p, department_head, budget_check, execute
@@ -17,7 +24,10 @@ p, cfo, finance_approval, approve
 p, cfo, check_budget, approve
 p, system_admin, *, *
 g, finance_manager, finance_department
+g, finance_officer, finance_department
 g, procurement_officer, procurement_department
+g, compliance_officer, compliance_department
 g, department_head, management
 g, cfo, executive
 g, system_admin, admin
+

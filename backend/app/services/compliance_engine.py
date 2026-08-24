@@ -34,10 +34,10 @@ DEFAULT_RULES: list[ComplianceRule] = [
     ComplianceRule(
         id=2,
         name="CFO Approval Threshold",
-        description="Purchases above $50,000 require CFO approval.",
+        description="Purchases above $150,000 require CFO approval.",
         rule_type="threshold",
-        threshold=50000.0,
-        condition="purchase_amount > 50000",
+        threshold=150000.0,
+        condition="purchase_amount > 150000",
         required_action="cfo_approval",
         severity="critical",
         active=True,
@@ -70,18 +70,24 @@ DEFAULT_RULES: list[ComplianceRule] = [
 def _extract_threshold_from_step(step) -> float:
     """Try to extract a numeric threshold from a step or condition."""
     if step.threshold:
-        match = re.search(r'[\$]?([\d,]+(?:\.\d+)?)', str(step.threshold))
+        match = re.search(r'([₹\$€£]?)([\d,]+(?:\.\d+)?)', str(step.threshold))
         if match:
             try:
-                return float(match.group(1).replace(",", ""))
+                val = float(match.group(2).replace(",", ""))
+                if match.group(1) == "₹" or "₹" in str(step.threshold) or "lakh" in str(step.threshold).lower() or "crore" in str(step.threshold).lower():
+                    return val / 85.0
+                return val
             except ValueError:
                 pass
     for cond in (step.conditions or []):
         if cond.value:
-            match = re.search(r'[\$]?([\d,]+(?:\.\d+)?)', str(cond.value))
+            match = re.search(r'([₹\$€£]?)([\d,]+(?:\.\d+)?)', str(cond.value))
             if match:
                 try:
-                    return float(match.group(1).replace(",", ""))
+                    val = float(match.group(2).replace(",", ""))
+                    if match.group(1) == "₹" or "₹" in str(cond.value) or "lakh" in str(cond.value).lower():
+                        return val / 85.0
+                    return val
                 except ValueError:
                     pass
     return 0.0
@@ -98,12 +104,15 @@ def _extract_threshold_from_ir(ir: WorkflowIR) -> float:
 
     # Fallback to scanning raw policy text
     if ir.raw_policy_text:
-        matches = re.findall(r'\$([\d,]+(?:\.\d+)?)', ir.raw_policy_text)
+        matches = re.findall(r'[\$₹]([\d,]+(?:\.\d+)?)', ir.raw_policy_text)
         if matches:
             amounts = []
             for m in matches:
                 try:
-                    amounts.append(float(m.replace(",", "")))
+                    val = float(m.replace(",", ""))
+                    if "₹" in ir.raw_policy_text:
+                        val = val / 85.0
+                    amounts.append(val)
                 except ValueError:
                     pass
             if amounts:
@@ -310,6 +319,15 @@ def _evaluate_rule(ir: WorkflowIR, rule: ComplianceRule) -> Violation | None:
     # 5. MULTI-CONDITION RULE
     # -------------------------------------------------------------------------
     elif rule_type == "multi_condition" or "cross_departmental" in (rule.condition or ""):
+        cond_str = (rule.condition or "").lower()
+        is_cross_wf = (
+            "cross" in (ir.raw_policy_text or "").lower()
+            or "cross" in (ir.workflow_name or "").lower()
+            or getattr(ir, "category", "") == "cross_departmental"
+        )
+        if "cross_departmental" in cond_str and not is_cross_wf:
+            return None
+
         departments = _get_unique_departments(ir)
         if len(departments) > 1:
             approval_count = sum(1 for s in ir.steps if s.approval_required or "approval" in s.id.lower() or "approve" in s.action.lower())

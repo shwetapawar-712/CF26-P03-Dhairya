@@ -229,7 +229,7 @@ function Dashboard({ theme, onToggleTheme, onNavigateHome }) {
 
   // Automated One-Click Hackathon Demo
   const handleRunDemo = async () => {
-    const demoPolicy = "Verify the vendor, check the budget, obtain finance approval, and create the procurement ticket.";
+    const demoPolicy = "Whenever we purchase 100 Laptops from Lenovo India for ₹80,00,000 for the IT department with an available budget of ₹1,20,00,000, verify the vendor, check whether the department has enough budget, obtain Finance approval, and then create the purchase order.";
     setPolicyText(demoPolicy);
     await handleCompile(demoPolicy);
   };

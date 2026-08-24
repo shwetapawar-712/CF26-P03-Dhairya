@@ -64,7 +64,7 @@ export default function PolicyEditorIDE({
         <textarea
           value={policyText}
           onChange={(e) => onChangePolicyText(e.target.value)}
-          placeholder="Enter natural-language policy... e.g. Verify the vendor, check the budget, obtain finance approval, and create the procurement ticket."
+          placeholder="Enter natural-language procurement policy... e.g. Whenever we purchase 100 Laptops from Lenovo India for ₹80,00,000 for the IT department with an available budget of ₹1,20,00,000, verify the vendor, check whether the department has enough budget, obtain Finance approval, and then create the purchase order."
           className="w-full h-full p-3 bg-transparent vf-text-primary font-mono text-xs focus:outline-none resize-none leading-relaxed tracking-wide placeholder:text-slate-400"
         />
       </div>

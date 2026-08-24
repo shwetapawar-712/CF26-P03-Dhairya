@@ -26,11 +26,13 @@ POLICY_PATH = os.path.join(RBAC_DIR, "policy.csv")
 ROLE_ACTION_MAP = {
     "finance_approval": "Finance Manager",
     "cfo_approval": "CFO",
+    "identify_vendor": "Procurement Officer",
     "vendor_verification": "Procurement Officer",
     "verify_vendor": "Procurement Officer",
     "check_budget": "Department Head",
     "budget_check": "Department Head",
     "create_procurement_ticket": "Procurement Officer",
+    "create_purchase_order": "Procurement Officer",
     "create_ticket": "Procurement Officer",
     "process_order": "Procurement Officer",
     "system_config": "System Admin",

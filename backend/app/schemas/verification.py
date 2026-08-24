@@ -9,7 +9,7 @@ SeverityLevel = Literal["info", "low", "medium", "high", "critical", "error", "w
 
 class Violation(BaseModel):
     """A single verification violation with full explainability."""
-    check_type: Literal["ambiguity", "rbac", "graph", "compliance", "conflict"] = Field(
+    check_type: Literal["ambiguity", "rbac", "graph", "compliance", "conflict", "vendor"] = Field(
         ..., description="Which verification check produced this violation"
     )
     severity: SeverityLevel = Field(
@@ -24,7 +24,7 @@ class Violation(BaseModel):
 class CheckResult(BaseModel):
     """Result of a single verification check."""
     check_name: str = Field(..., description="e.g. 'Semantic Analysis', 'RBAC Authorization'")
-    check_type: Literal["ambiguity", "rbac", "graph", "compliance", "conflict"]
+    check_type: Literal["ambiguity", "rbac", "graph", "compliance", "conflict", "vendor"]
     passed: bool
     duration_ms: float = 0.0
     violations: list[Violation] = Field(default_factory=list)
@@ -66,6 +66,7 @@ class PipelineResult(BaseModel):
     parsed_policy: Optional[dict] = None
     workflow_ir: Optional[dict] = None
     verification: Optional[VerificationResult] = None
+    vendor_verification: Optional[dict] = None
     graph_data: Optional[dict] = None
     workflow_id: Optional[str] = None
 

@@ -274,8 +274,9 @@ async def run_full_pipeline(
 
     Returns a PipelineResult with all step outputs.
     """
-    from app.services.nlp_parser import parse_policy
+    from app.services.nlp_parser import parse_policy, extract_procurement_request
     from app.services.ir_builder import build_ir
+    from app.services.vendor_verifier import verify_vendor_signals
 
     target_wf_id = workflow_id or f"wf_{uuid.uuid4().hex[:8]}"
     pipeline_steps: list[PipelineStepResult] = []
@@ -384,11 +385,98 @@ async def run_full_pipeline(
         output_data={"violations": [v.model_dump() for v in step7_violations]},
     ))
 
-    # Step 8: Final Verification Gatekeeper
+    # -----------------------------------------------------------------------
+    # LAYER 2: Vendor Evidence Verification
+    # For procurement workflows, vendor legitimacy is a MANDATORY execution
+    # prerequisite — independent of the 5 structural (Layer 1) checks.
+    #
+    # BLOCKING STATUSES (ALL of these block Finance Approval & PO execution):
+    #   - INSUFFICIENT_EVIDENCE  → Unknown/unrecognised vendor, no registry data
+    #   - VERIFICATION_FAILED    → Adverse/sanctioned entity
+    #   - UNVERIFIED             → Identity unconfirmed
+    #   - REVIEW_REQUIRED        → Incomplete evidence, human review needed
+    #   - NEEDS_CLARIFICATION    → Vendor name missing/ambiguous
+    #
+    # If vendor evidence is NOT "VERIFIED":
+    #   - verification.passed = False
+    #   - verification.execution_allowed = False
+    #   - verification token is revoked
+    #   - Step 8 Gatekeeper = BLOCKED
+    #   - Frontend sees passed=False → no execution session is created
+    # -----------------------------------------------------------------------
+    proc_info = extract_procurement_request(policy_text)
+    vendor_verif_dict = None
+    is_procurement_policy = (
+        proc_info.get("vendor_name") is not None
+        or "vendor" in policy_text.lower()
+        or "purchase" in policy_text.lower()
+        or "procure" in policy_text.lower()
+        or any("vendor" in s.id.lower() or "purchase" in s.id.lower() for s in ir.steps)
+    )
+
+    # BLOCKING_VENDOR_STATUSES: every status that is NOT "VERIFIED" must block.
+    BLOCKING_VENDOR_STATUSES = {
+        "INSUFFICIENT_EVIDENCE",
+        "VERIFICATION_FAILED",
+        "UNVERIFIED",
+        "REVIEW_REQUIRED",
+        "NEEDS_CLARIFICATION",
+    }
+
+    if is_procurement_policy:
+        v_name = proc_info.get("vendor_name")
+        vendor_assessment = verify_vendor_signals(v_name)
+        vendor_verif_dict = vendor_assessment.model_dump()
+
+        # GATE: Block if vendor status is anything other than VERIFIED.
+        # This covers INSUFFICIENT_EVIDENCE, VERIFICATION_FAILED, UNVERIFIED,
+        # REVIEW_REQUIRED, and NEEDS_CLARIFICATION (incl. when v_name is None).
+        if vendor_assessment.verification_status in BLOCKING_VENDOR_STATUSES:
+            v_status = vendor_assessment.verification_status
+            v_decision = vendor_assessment.decision
+            v_summary_txt = vendor_assessment.summary
+            vendor_label = f"'{v_name}'" if v_name else "[Unspecified/Unknown]"
+
+            # Collapse the verification result — Layer 1 passing is insufficient
+            verification.passed = False
+            verification.execution_allowed = False
+            verification.verification_id = None
+            invalidate_verification_tokens(target_wf_id)
+
+            if "Vendor Verification" not in verification.failed_checks:
+                verification.failed_checks.append("Vendor Verification")
+            if "Vendor Verification" in verification.passed_checks:
+                verification.passed_checks.remove("Vendor Verification")
+
+            if not any(v.check_type == "vendor" for v in verification.violations):
+                verification.violations.append(Violation(
+                    check_type="vendor",
+                    severity="critical",
+                    problem=f"Vendor {vendor_label} failed registry verification (Status: {v_status}).",
+                    cause=v_summary_txt,
+                    suggested_fix=(
+                        "Provide an authoritative registered vendor (e.g., Lenovo India, Dell Technologies) "
+                        "or submit valid MCA ROC / GSTIN credentials for compliance clearance."
+                    ),
+                    metadata={"vendor_assessment": vendor_verif_dict},
+                ))
+                verification.total_errors += 1
+
+            verification.score, verification.risk_level = calculate_verification_score_and_risk(
+                False, verification.violations
+            )
+            verification.summary = (
+                f"✗ Workflow '{ir.workflow_name}' BLOCKED — Vendor {vendor_label} evidence is "
+                f"{v_status}. {v_decision}. "
+                f"Finance Approval and Purchase Order creation are completely blocked until "
+                f"authoritative registry verification is obtained."
+            )
+
+    # Step 8: Final Verification Gatekeeper (reflects combined Layer 1 + Layer 2 status)
     pipeline_steps.append(PipelineStepResult(
         step_number=8,
         step_name="Verification Gatekeeper",
-        status="passed" if verification.passed else "blocked",
+        status="passed" if (verification.passed and verification.execution_allowed) else "blocked",
         duration_ms=round(duration, 2),
         output_data=verification.model_dump(),
     ))
@@ -405,6 +493,7 @@ async def run_full_pipeline(
         parsed_policy=parsed_dict,
         workflow_ir=ir_dict,
         verification=verification,
+        vendor_verification=vendor_verif_dict,
         graph_data=graph_data,
         workflow_id=target_wf_id,
     )
