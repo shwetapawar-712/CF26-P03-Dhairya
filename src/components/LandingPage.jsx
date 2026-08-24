@@ -36,8 +36,6 @@ export default function LandingPage({ onNavigateToApp, theme, onToggleTheme }) {
   const navLinks = [
     { label: 'Home', target: 'hero' },
     { label: 'How It Works', target: 'how-it-works' },
-    { label: 'Compiler', target: 'hero' },
-    { label: 'Verification', target: 'capabilities' },
     { label: 'Features', target: 'capabilities' },
   ];
 

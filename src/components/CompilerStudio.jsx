@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import ScenarioSelector from './ScenarioSelector';
 import PolicyEditorIDE from './PolicyEditorIDE';
 import AIInterpretationCard from './AIInterpretationCard';
 import InteractivePipelineBar from './InteractivePipelineBar';
@@ -13,8 +12,6 @@ import StageDetailModal from './StageDetailModal';
 export default function CompilerStudio({
   policyText,
   onChangePolicyText,
-  selectedScenario,
-  onSelectScenario,
   pipelineResult,
   isLoading,
   onCompile,
@@ -30,13 +27,6 @@ export default function CompilerStudio({
 
   return (
     <div className="space-y-5">
-      {/* Demo Scenario Selector Bar */}
-      <ScenarioSelector
-        selectedScenario={selectedScenario}
-        onSelectScenario={onSelectScenario}
-        isLoading={isLoading}
-      />
-
       {/* Top 2-Column IDE Zone */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
         <div className="lg:col-span-7">

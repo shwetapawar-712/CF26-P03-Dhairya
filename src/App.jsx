@@ -15,6 +15,7 @@ import AuditLogDashboard from './components/AuditLogDashboard';
 import VersionViewer from './components/VersionViewer';
 import ExecutionSimulator from './components/ExecutionSimulator';
 import LandingPage from './components/LandingPage';
+import TerminalLoader from './components/TerminalLoader';
 
 import {
   verifyPolicy,
@@ -28,6 +29,16 @@ import { Lock, CheckCircle2, XCircle, Play, Pause, SkipForward, RotateCcw, Alert
 
 
 export default function App() {
+  // ── Initial Startup Terminal Splash Loader (Only runs once per session) ──
+  const [showSplash, setShowSplash] = useState(() => {
+    return !sessionStorage.getItem('vf_splash_initialized');
+  });
+
+  const handleSplashComplete = useCallback(() => {
+    sessionStorage.setItem('vf_splash_initialized', 'true');
+    setShowSplash(false);
+  }, []);
+
   // ── Routing (path-based SPA) ──
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
@@ -69,24 +80,23 @@ export default function App() {
     }
   }, [currentPath]);
 
-  // ── Landing page view ──
+  // ── Main Render: Terminal Splash Loader + Page Views ──
   const isLandingView = currentPath === '/' || currentPath === '';
 
-  if (isLandingView) {
-    return (
-      <LandingPage
-        onNavigateToApp={() => navigateTo('/app')}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-      />
-    );
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // DASHBOARD (existing — unchanged below this line)
-  // ══════════════════════════════════════════════════════════
-
-  return <Dashboard theme={theme} onToggleTheme={toggleTheme} onNavigateHome={() => navigateTo('/')} />;
+  return (
+    <>
+      {showSplash && <TerminalLoader onComplete={handleSplashComplete} />}
+      {isLandingView ? (
+        <LandingPage
+          onNavigateToApp={() => navigateTo('/app')}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+      ) : (
+        <Dashboard theme={theme} onToggleTheme={toggleTheme} onNavigateHome={() => navigateTo('/')} />
+      )}
+    </>
+  );
 }
 
 function Dashboard({ theme, onToggleTheme, onNavigateHome }) {
@@ -349,8 +359,6 @@ function Dashboard({ theme, onToggleTheme, onNavigateHome }) {
                   setExecutionSession(null);
                   setSelectedScenario(null);
                 }}
-                selectedScenario={selectedScenario}
-                onSelectScenario={handleRunScenario}
               />
             </div>
           )}

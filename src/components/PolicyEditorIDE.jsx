@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { Sparkles, Save, FileText, RotateCcw, CheckCircle2 } from 'lucide-react';
-import ScenarioSelector from './ScenarioSelector';
 
 export default function PolicyEditorIDE({
   policyText,
@@ -8,8 +7,6 @@ export default function PolicyEditorIDE({
   onCompile,
   isLoading,
   onReset,
-  selectedScenario,
-  onSelectScenario,
 }) {
   // Line numbers calculation
   const lines = policyText.split('\n');
@@ -40,13 +37,7 @@ export default function PolicyEditorIDE({
           </div>
           <span className="text-[10px] vf-text-tertiary font-mono hidden sm:inline">DSL</span>
         </div>
-
-        {/* Integrated Demo Scenario Dropdown */}
-        <ScenarioSelector
-          selectedScenario={selectedScenario}
-          onSelectScenario={onSelectScenario}
-          isLoading={isLoading}
-        />
+        <span className="text-[10px] vf-text-tertiary font-mono">Natural Language Policy</span>
       </div>
 
       {/* Code Editor Body */}
@@ -64,8 +55,8 @@ export default function PolicyEditorIDE({
         <textarea
           value={policyText}
           onChange={(e) => onChangePolicyText(e.target.value)}
-          placeholder="Enter natural-language procurement policy... e.g. Whenever we purchase 100 Laptops from Lenovo India for ₹80,00,000 for the IT department with an available budget of ₹1,20,00,000, verify the vendor, check whether the department has enough budget, obtain Finance approval, and then create the purchase order."
-          className="w-full h-full p-3 bg-transparent vf-text-primary font-mono text-xs focus:outline-none resize-none leading-relaxed tracking-wide placeholder:text-slate-400"
+          placeholder="Describe your procurement workflow in natural language..."
+          className="w-full h-full p-3 bg-transparent vf-text-primary font-mono text-xs focus:outline-none resize-none leading-relaxed tracking-wide placeholder:text-slate-400/60"
         />
       </div>
 
