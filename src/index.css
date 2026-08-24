@@ -3,21 +3,97 @@
 
 @layer base {
   :root {
-    --bg-app: #f8fafc;
-    --bg-card: #ffffff;
-    --border-card: #e2e8f0;
-    --text-heading: #0f172a;
-    --text-body: #334155;
-    --text-muted: #64748b;
+    /* ── Core tokens ── */
+    --vf-bg: #0f172a;
+    --vf-panel: #111827;
+    --vf-card: #1f2937;
+    --vf-border: #1e293b;
+    --vf-border-light: #334155;
+    --vf-border-subtle: rgba(30, 41, 59, 0.6);
+    --vf-primary: #635bff;
+    --vf-primary-hover: #4f46e5;
+    --vf-success: #10b981;
+    --vf-warning: #f59e0b;
+    --vf-danger: #ef4444;
+    --vf-text: #e2e8f0;
+    --vf-muted: #64748b;
+
+    /* ── Semantic Backgrounds ── */
+    --vf-bg-primary: #0f172a;
+    --vf-bg-secondary: #0b0f1a;
+    --vf-bg-card: #111827;
+    --vf-bg-card-hover: #1a2332;
+    --vf-bg-card-alt: #182234;
+    --vf-bg-editor: #090d16;
+    --vf-bg-gutter: #050810;
+
+    /* ── Semantic Typography ── */
+    --vf-text-primary: #f1f5f9;
+    --vf-text-secondary: #94a3b8;
+    --vf-text-tertiary: #64748b;
+    --vf-text-muted: #475569;
+
+    /* ── Accents & Glows ── */
+    --vf-accent-primary: #635bff;
+    --vf-accent-secondary: #818cf8;
+    --vf-accent-glow: rgba(99, 91, 255, 0.25);
+    --vf-glow: rgba(99, 91, 255, 0.15);
+    --vf-glass-bg: rgba(15, 23, 42, 0.7);
+    --vf-glass-border: rgba(51, 65, 85, 0.5);
+
+    /* ── Interactive & Code ── */
+    --vf-code-text: #67e8f9;
+    --vf-modal-backdrop: rgba(0, 0, 0, 0.75);
+    --vf-tab-active-bg: #4f46e5;
+    --vf-tab-active-text: #ffffff;
+    --vf-tab-inactive-text: #94a3b8;
+  }
+
+  /* ── Light theme overrides ── */
+  [data-theme="light"] {
+    --vf-bg: #f8fafc;
+    --vf-panel: #ffffff;
+    --vf-card: #ffffff;
+    --vf-border: #e2e8f0;
+    --vf-border-light: #cbd5e1;
+    --vf-border-subtle: rgba(226, 232, 240, 0.7);
+    --vf-text: #1e293b;
+    --vf-muted: #64748b;
+
+    --vf-bg-primary: #f8fafc;
+    --vf-bg-secondary: #ffffff;
+    --vf-bg-card: #ffffff;
+    --vf-bg-card-hover: #f1f5f9;
+    --vf-bg-card-alt: #f1f5f9;
+    --vf-bg-editor: #ffffff;
+    --vf-bg-gutter: #f8fafc;
+
+    --vf-text-primary: #0f172a;
+    --vf-text-secondary: #475569;
+    --vf-text-tertiary: #64748b;
+    --vf-text-muted: #94a3b8;
+
+    --vf-accent-glow: rgba(99, 91, 255, 0.12);
+    --vf-glow: rgba(99, 91, 255, 0.08);
+    --vf-glass-bg: rgba(255, 255, 255, 0.85);
+    --vf-glass-border: rgba(226, 232, 240, 0.8);
+
+    --vf-code-text: #0e7490;
+    --vf-modal-backdrop: rgba(15, 23, 42, 0.45);
+    --vf-tab-active-bg: #635bff;
+    --vf-tab-active-text: #ffffff;
+    --vf-tab-inactive-text: #64748b;
   }
 
   body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: #f8fafc;
-    color: #334155;
+    background-color: var(--vf-bg-primary);
+    color: var(--vf-text-primary);
+
     min-height: 100vh;
     margin: 0;
     padding: 0;
+    overflow: hidden;
   }
 
   code, pre, .font-mono {
@@ -25,18 +101,49 @@
   }
 }
 
-/* Light Card Style */
-.saas-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+/* ── Landing page body (scrollable) ── */
+body.landing-page {
+  overflow: auto;
 }
 
-.saas-card:hover {
-  border-color: #cbd5e1;
+/* Custom Dark Compiler Card / Panel Style */
+.vf-panel {
+  background: var(--vf-panel);
+  border: 1px solid var(--vf-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: border-color 0.15s ease;
 }
+
+.vf-panel:hover {
+  border-color: var(--vf-border-light);
+}
+
+.vf-card {
+  background: var(--vf-card);
+  border: 1px solid var(--vf-border);
+  border-radius: 6px;
+}
+
+/* ================================================================
+   CENTRALIZED VERIFLOW DESIGN TOKEN UTILITY CLASSES
+   ================================================================ */
+.vf-bg-primary { background-color: var(--vf-bg-primary); }
+.vf-bg-secondary { background-color: var(--vf-bg-secondary); }
+.vf-bg-card { background-color: var(--vf-bg-card); }
+.vf-bg-card-alt { background-color: var(--vf-bg-card-alt); }
+.vf-bg-editor { background-color: var(--vf-bg-editor); }
+.vf-bg-gutter { background-color: var(--vf-bg-gutter); }
+
+.vf-border { border-color: var(--vf-border); }
+.vf-border-light { border-color: var(--vf-border-light); }
+.vf-border-subtle { border-color: var(--vf-border-subtle); }
+
+.vf-text-primary { color: var(--vf-text-primary); }
+.vf-text-secondary { color: var(--vf-text-secondary); }
+.vf-text-tertiary { color: var(--vf-text-tertiary); }
+.vf-text-muted { color: var(--vf-text-muted); }
+
 
 /* Badges */
 .badge {
@@ -45,123 +152,116 @@
   gap: 4px;
   padding: 2px 8px;
   border-radius: 9999px;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .badge-green {
-  background: #ecfdf5;
-  color: #065f46;
-  border: 1px solid #a7f3d0;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
 }
 
 .badge-red {
-  background: #fef2f2;
-  color: #991b1b;
-  border: 1px solid #fecaca;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
 }
 
 .badge-yellow {
-  background: #fffbeb;
-  color: #92400e;
-  border: 1px solid #fde68a;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
 }
 
 .badge-blue {
-  background: #eff6ff;
-  color: #1e40af;
-  border: 1px solid #bfdbfe;
+  background: rgba(99, 91, 255, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(165, 180, 252, 0.3);
 }
 
 .badge-purple {
-  background: #f5f3ff;
-  color: #5b21b6;
-  border: 1px solid #ddd6fe;
-}
-
-.badge-indigo {
-  background: #e0e7ff;
-  color: #3730a3;
-  border: 1px solid #c7d2fe;
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(192, 132, 252, 0.3);
 }
 
 .badge-gray {
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #e2e8f0;
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
-/* Buttons */
+/* Dark Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 14px;
-  font-size: 0.8125rem;
+  padding: 6px 12px;
+  font-size: 0.78rem;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .btn-primary {
-  background: #4f46e5;
+  background: var(--vf-primary);
   color: #ffffff;
-  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
+  box-shadow: 0 2px 8px rgba(99, 91, 255, 0.35);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #4338ca;
-  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.4);
+  background: var(--vf-primary-hover);
+  box-shadow: 0 4px 12px rgba(99, 91, 255, 0.5);
 }
 
 .btn-primary:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: #ffffff;
-  color: #334155;
-  border-color: #e2e8f0;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  background: #1e293b;
+  color: #cbd5e1;
+  border-color: #334155;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-  color: #0f172a;
+  background: #334155;
+  color: #ffffff;
+  border-color: #475569;
 }
 
 .btn-danger {
-  background: #fef2f2;
-  color: #991b1b;
-  border-color: #fecaca;
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #fee2e2;
+  background: rgba(239, 68, 68, 0.3);
+  color: #ffffff;
 }
 
 .btn-disabled-locked {
-  background: #f1f5f9;
-  color: #94a3b8;
-  border-color: #cbd5e1;
+  background: #1e293b;
+  color: #64748b;
+  border-color: #334155;
   cursor: not-allowed;
-  opacity: 0.8;
+  opacity: 0.6;
 }
 
-/* Compiler Terminal Output Styling */
+/* Compiler Terminal Console Styles */
 .compiler-terminal {
-  background-color: #0f172a;
+  background-color: #090d16;
   color: #e2e8f0;
   font-family: 'JetBrains Mono', Consolas, monospace;
   font-size: 0.75rem;
-  border-radius: 12px;
   border: 1px solid #1e293b;
 }
 
@@ -172,21 +272,325 @@
   line-height: 1.6;
 }
 
-/* Custom Scrollbar */
+/* Custom Resizer Handle */
+.panel-resizer {
+  width: 5px;
+  background-color: var(--vf-border);
+  cursor: col-resize;
+  transition: background-color 0.2s;
+  z-index: 10;
+}
+
+.panel-resizer:hover, .panel-resizer:active {
+  background-color: var(--vf-primary);
+}
+
+/* Focus Mode Fullscreen Overlay */
+.focus-mode-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background-color: #0f172a;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Diff Viewer Styles */
+.diff-add {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-left: 3px solid #10b981;
+}
+
+.diff-remove {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-left: 3px solid #ef4444;
+}
+
+/* Keyframe Animations */
+@keyframes pulseGlow {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 6px rgba(99, 91, 255, 0.6)); }
+  50% { opacity: 0.7; filter: drop-shadow(0 0 2px rgba(99, 91, 255, 0.2)); }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
+/* Custom Scrollbars for Dark Workspace */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f8fafc;
+  background: #0b0f1a;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #334155;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* ================================================================
+   LANDING PAGE STYLES
+   All values reference CSS custom properties / design tokens.
+   ================================================================ */
+
+/* Glass navbar */
+.vf-glass-nav {
+  background: var(--vf-glass-bg);
+  border-bottom: 1px solid var(--vf-glass-border);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+}
+
+/* Hero glow orb */
+.vf-hero-glow {
+  position: absolute;
+  width: 560px;
+  height: 560px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--vf-accent-glow) 0%, transparent 70%);
+  pointer-events: none;
+  filter: blur(80px);
+  opacity: 0.6;
+}
+
+/* Pipeline flow connector line */
+.vf-pipeline-line {
+  height: 2px;
+  background: linear-gradient(90deg, var(--vf-accent-primary), var(--vf-accent-secondary));
+  opacity: 0.4;
+}
+
+/* Feature card (landing) */
+.vf-feature-card {
+  background: var(--vf-bg-card);
+  border: 1px solid var(--vf-border);
+  border-radius: 12px;
+  padding: 1.75rem;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.vf-feature-card:hover {
+  border-color: var(--vf-accent-primary);
+  box-shadow: 0 0 24px var(--vf-glow);
+  transform: translateY(-2px);
+}
+
+/* Step number circle */
+.vf-step-number {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.875rem;
+  background: var(--vf-accent-primary);
+  color: #ffffff;
+  flex-shrink: 0;
+  box-shadow: 0 0 20px var(--vf-accent-glow);
+}
+
+/* CTA section glow */
+.vf-cta-glow {
+  background: radial-gradient(ellipse at center, var(--vf-accent-glow) 0%, transparent 70%);
+}
+
+/* Landing page smooth scroll */
+.vf-landing {
+  scroll-behavior: smooth;
+}
+
+/* Pipeline node animation */
+@keyframes pipelineNodePulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--vf-accent-glow); }
+  50% { box-shadow: 0 0 16px 4px var(--vf-accent-glow); }
+}
+
+.vf-pipeline-node {
+  animation: pipelineNodePulse 3s infinite ease-in-out;
+}
+
+/* Fade-in for sections */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.vf-fade-in {
+  animation: fadeInUp 0.7s ease-out both;
+}
+
+.vf-fade-in-delay-1 { animation-delay: 0.1s; }
+.vf-fade-in-delay-2 { animation-delay: 0.2s; }
+.vf-fade-in-delay-3 { animation-delay: 0.3s; }
+.vf-fade-in-delay-4 { animation-delay: 0.4s; }
+
+/* Light theme scrollbar overrides */
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* ================================================================
+   DASHBOARD LIGHT MODE OVERRIDES
+   When data-theme="light", adapt all dashboard components seamlessly.
+   ================================================================ */
+
+html[data-theme="light"] body {
+  background-color: var(--vf-bg-primary);
+  color: var(--vf-text-primary);
+}
+
+/* Main dark container overrides */
+html[data-theme="light"] .bg-\[\#0f172a\],
+html[data-theme="light"] .bg-\[\#0b0f1a\],
+html[data-theme="light"] .bg-\[\#0e1424\],
+html[data-theme="light"] .bg-\[\#111827\] {
+  background-color: var(--vf-bg-secondary) !important;
+}
+
+html[data-theme="light"] .bg-\[\#090d16\],
+html[data-theme="light"] .bg-\[\#050810\],
+html[data-theme="light"] .bg-\[\#182234\] {
+  background-color: #f1f5f9 !important;
+}
+
+/* Border overrides */
+html[data-theme="light"] .border-slate-800,
+html[data-theme="light"] .border-slate-800\/80,
+html[data-theme="light"] .border-slate-800\/50,
+html[data-theme="light"] .border-slate-800\/30 {
+  border-color: var(--vf-border) !important;
+}
+
+html[data-theme="light"] .border-slate-700 {
+  border-color: var(--vf-border-light) !important;
+}
+
+/* Text overrides */
+html[data-theme="light"] .text-slate-100,
+html[data-theme="light"] .text-slate-200 {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .text-slate-300,
+html[data-theme="light"] .text-slate-400 {
+  color: #475569 !important;
+}
+
+html[data-theme="light"] .text-slate-500 {
+  color: #64748b !important;
+}
+
+html[data-theme="light"] .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+/* Buttons in light mode */
+html[data-theme="light"] .btn-secondary {
+  background: #ffffff;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+
+html[data-theme="light"] .btn-secondary:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+/* Code Editor / Policy Studio */
+html[data-theme="light"] textarea {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Resizer handle */
+html[data-theme="light"] .panel-resizer {
+  background-color: #e2e8f0;
+}
+
+html[data-theme="light"] .panel-resizer:hover,
+html[data-theme="light"] .panel-resizer:active {
+  background-color: var(--vf-primary);
+}
+
+/* Compiler Terminal Console */
+html[data-theme="light"] .compiler-terminal {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* ReactFlow Canvas & Nodes */
+html[data-theme="light"] .react-flow {
+  background-color: #f8fafc !important;
+}
+
+html[data-theme="light"] .react-flow__background {
+  background-color: #f8fafc !important;
+}
+
+html[data-theme="light"] .react-flow__controls {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #334155 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+html[data-theme="light"] .react-flow__controls button {
+  background-color: #ffffff !important;
+  border-bottom-color: #e2e8f0 !important;
+  color: #334155 !important;
+}
+
+html[data-theme="light"] .react-flow__controls button:hover {
+  background-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] .react-flow__minimap {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Action node in light mode */
+html[data-theme="light"] .react-flow__node-action > div {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Modals & Overlays */
+html[data-theme="light"] .fixed.inset-0.bg-black\/70,
+html[data-theme="light"] .fixed.inset-0.bg-black\/80 {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+html[data-theme="light"] .vf-panel,
+html[data-theme="light"] .vf-card {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+

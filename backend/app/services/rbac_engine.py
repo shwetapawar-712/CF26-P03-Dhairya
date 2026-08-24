@@ -94,7 +94,7 @@ def check_rbac(ir: WorkflowIR) -> list[Violation]:
 
             violations.append(Violation(
                 check_type="rbac",
-                severity="error",
+                severity="critical" if step.approval_required else "high",
                 problem=f"Authorization violation: '{step.role}' cannot perform '{step.action}'.",
                 cause=(
                     f"The role '{step.role}' does not have permission to "

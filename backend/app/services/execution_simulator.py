@@ -3,6 +3,9 @@ Execution Simulator — step-by-step workflow execution state machine.
 
 Tracks node states: pending → running → waiting_for_approval → completed | rejected | locked | skipped.
 Supports advancing one step at a time and interactive human business approval sign-off.
+
+SECURITY ENFORCEMENT:
+- VERIFY BEFORE EXECUTE: Requires successful verification before execution can initialize or advance.
 """
 
 import logging
@@ -15,10 +18,11 @@ StepStatus = Literal["pending", "running", "waiting_for_approval", "completed", 
 
 
 class ExecutionState:
-    """Tracks the execution state of a workflow during actual runtime execution."""
+    """Tracks the execution state of a verified workflow during actual runtime execution."""
 
-    def __init__(self, ir: WorkflowIR):
+    def __init__(self, ir: WorkflowIR, verification_id: Optional[str] = None):
         self.ir = ir
+        self.verification_id = verification_id
         self.step_map = {s.id: s for s in ir.steps}
         self.ordered_steps = self._topological_sort()
         self.step_states: dict[str, StepStatus] = {s.id: "pending" for s in ir.steps}
@@ -173,6 +177,7 @@ class ExecutionState:
     def get_state(self) -> dict:
         """Return the current execution state dictionary."""
         return {
+            "verification_id": self.verification_id,
             "step_states": dict(self.step_states),
             "current_step": self.ordered_steps[self.current_index] if 0 <= self.current_index < len(self.ordered_steps) else None,
             "waiting_approval_step": self.waiting_approval_step,
@@ -193,18 +198,35 @@ class ExecutionState:
 _execution_states: dict[str, ExecutionState] = {}
 
 
-def create_execution(workflow_id: str, ir: WorkflowIR) -> dict:
-    """Create execution state."""
-    state = ExecutionState(ir)
+def create_execution(workflow_id: str, ir: WorkflowIR, verification_id: Optional[str] = None) -> dict:
+    """
+    Create execution state after verifying gate status.
+
+    Raises PermissionError if workflow has not passed verification.
+    """
+    from app.services.verification_gate import run_verification_gate, validate_verification_token
+
+    # Security check: verify gate before allowing execution
+    if verification_id:
+        if not validate_verification_token(verification_id, workflow_id):
+            raise PermissionError("Workflow execution blocked: invalid or expired verification ID.")
+    else:
+        # Run verification check dynamically
+        verif = run_verification_gate(ir, workflow_id=workflow_id)
+        if not verif.execution_allowed:
+            raise PermissionError(f"Workflow execution blocked: verification failed ({verif.summary})")
+        verification_id = verif.verification_id
+
+    state = ExecutionState(ir, verification_id=verification_id)
     _execution_states[workflow_id] = state
     return state.get_state()
 
 
 def advance_execution(workflow_id: str) -> dict:
-    """Advance execution."""
+    """Advance execution for a verified workflow."""
     state = _execution_states.get(workflow_id)
     if not state:
-        return {"error": f"No execution found for workflow '{workflow_id}'"}
+        return {"error": f"No active verified execution found for workflow '{workflow_id}'"}
     return state.advance()
 
 
@@ -212,7 +234,7 @@ def approve_execution_step(workflow_id: str, approved: bool, user_role: str = "F
     """Approve or reject a waiting business approval step."""
     state = _execution_states.get(workflow_id)
     if not state:
-        return {"error": f"No execution found for workflow '{workflow_id}'"}
+        return {"error": f"No active verified execution found for workflow '{workflow_id}'"}
     return state.approve_step(approved, user_role)
 
 

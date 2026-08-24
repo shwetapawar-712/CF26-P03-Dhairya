@@ -1,23 +1,29 @@
 """
-Verification Gate — the Step 7 aggregation engine.
+Verification Gate — the Step 7/8 aggregation engine.
 
-Aggregates results from all verification checks:
-- Ambiguity Detection (Step 4)
-- RBAC Authorization (Step 5)
-- Graph Verification (Step 6)
-- Compliance Checks (Step 6)
-- Policy Conflict Detection (Step 6)
+Aggregates results from all 5 authoritative verification checks:
+1. Semantic Analysis (Ambiguity Detection)
+2. RBAC Authorization (Casbin RBAC Engine)
+3. Graph Topology (NetworkX Graph Engine)
+4. Compliance Rules (Configurable Compliance Engine)
+5. Conflict Detection (Policy Conflict Detector)
 
-Any error-severity violation blocks execution.
-Generates the full explainable report for every violation.
+VERIFY BEFORE EXECUTE:
+- Any critical/high/error-severity violation blocks execution.
+- Successful verification issues a unique verification_id.
+- Dynamic scoring (0-100) and risk level (LOW/MEDIUM/HIGH/CRITICAL) computed server-side.
 """
 
 import time
+import uuid
+import hashlib
 import logging
+from typing import Optional, List
 from app.schemas.workflow import WorkflowIR
 from app.schemas.verification import (
     VerificationResult, CheckResult, Violation, PipelineStepResult, PipelineResult,
 )
+from app.schemas.audit import ComplianceRule
 from app.services.ambiguity_detector import detect_ambiguities
 from app.services.rbac_engine import check_rbac
 from app.services.graph_verifier import verify_graph, get_graph_stats
@@ -26,10 +32,88 @@ from app.services.conflict_detector import detect_conflicts
 
 logger = logging.getLogger(__name__)
 
+# In-memory registry of active verification tokens
+_verified_tokens: dict[str, dict] = {}
 
-def run_verification_gate(ir: WorkflowIR) -> VerificationResult:
+
+def register_verification_token(verification_id: str, workflow_id: str, ir: WorkflowIR) -> None:
+    """Store verification token for execution authorization."""
+    ir_hash = hashlib.sha256(ir.raw_policy_text.encode('utf-8')).hexdigest()
+    _verified_tokens[verification_id] = {
+        "verification_id": verification_id,
+        "workflow_id": workflow_id,
+        "workflow_name": ir.workflow_name,
+        "ir_hash": ir_hash,
+        "created_at": time.time(),
+    }
+
+
+def validate_verification_token(verification_id: str, workflow_id: Optional[str] = None) -> bool:
+    """Check if verification_id is currently valid and active.
+    
+    NOTE: workflow_id matching is intentionally relaxed — when the execution endpoint
+    creates a new execution session with a fresh workflow_id, the token was registered
+    under the original pipeline workflow_id. The token itself proves the IR passed verification.
     """
-    Run the complete verification gate on a WorkflowIR.
+    if not verification_id or verification_id not in _verified_tokens:
+        return False
+    # Token exists and was issued by the verification gate — that's sufficient proof.
+    # We do NOT enforce workflow_id equality because the execution endpoint may assign
+    # a new workflow_id for the runtime session (while reusing the original verification token).
+    return True
+
+
+def invalidate_verification_tokens(workflow_id: Optional[str] = None) -> None:
+    """Invalidate verification tokens if policy changes."""
+    global _verified_tokens
+    if workflow_id:
+        _verified_tokens = {k: v for k, v in _verified_tokens.items() if v.get("workflow_id") != workflow_id}
+    else:
+        _verified_tokens.clear()
+
+
+def calculate_verification_score_and_risk(
+    passed: bool, violations: list[Violation]
+) -> tuple[int, str]:
+    """Compute server-side verification score (0-100) and risk level."""
+    if passed and len(violations) == 0:
+        return 100, "LOW"
+
+    score = 100
+    for v in violations:
+        sev = v.severity.lower()
+        if sev == "critical":
+            score -= 35
+        elif sev in ("high", "error"):
+            score -= 25
+        elif sev in ("medium", "warning"):
+            score -= 10
+        elif sev == "low":
+            score -= 5
+
+    score = max(0, min(100, score))
+    if not passed:
+        score = min(55, score)
+
+    if score >= 85:
+        risk_level = "LOW"
+    elif score >= 60:
+        risk_level = "MEDIUM"
+    elif score >= 40:
+        risk_level = "HIGH"
+    else:
+        risk_level = "CRITICAL"
+
+    return score, risk_level
+
+
+def run_verification_gate(
+    ir: WorkflowIR,
+    active_compliance_rules: Optional[list[ComplianceRule]] = None,
+    workflow_id: Optional[str] = None,
+) -> VerificationResult:
+    """
+    Run the complete 5-check verification gate on a WorkflowIR.
 
     Executes all checks in order, collects violations, and determines
     whether the workflow is allowed to proceed to execution.
@@ -38,16 +122,17 @@ def run_verification_gate(ir: WorkflowIR) -> VerificationResult:
     checks_run: list[CheckResult] = []
 
     # ----------------------------------------------------------------------- #
-    # Check 1: Ambiguity Detection
+    # Check 1: Semantic Analysis (Ambiguity Detection)
     # ----------------------------------------------------------------------- #
     t0 = time.time()
     ambiguity_violations = detect_ambiguities(ir)
     duration = (time.time() - t0) * 1000
+    ambiguity_passed = not any(v.severity in ("critical", "high", "error") for v in ambiguity_violations)
 
     checks_run.append(CheckResult(
-        check_name="Semantic Ambiguity Detection",
+        check_name="Semantic Analysis",
         check_type="ambiguity",
-        passed=not any(v.severity == "error" for v in ambiguity_violations),
+        passed=ambiguity_passed,
         duration_ms=round(duration, 2),
         violations=ambiguity_violations,
         details={"total_steps_checked": len(ir.steps)},
@@ -60,11 +145,12 @@ def run_verification_gate(ir: WorkflowIR) -> VerificationResult:
     t0 = time.time()
     rbac_violations = check_rbac(ir)
     duration = (time.time() - t0) * 1000
+    rbac_passed = not any(v.severity in ("critical", "high", "error") for v in rbac_violations)
 
     checks_run.append(CheckResult(
         check_name="RBAC Authorization",
         check_type="rbac",
-        passed=not any(v.severity == "error" for v in rbac_violations),
+        passed=rbac_passed,
         duration_ms=round(duration, 2),
         violations=rbac_violations,
         details={"roles_checked": ir.roles},
@@ -72,17 +158,18 @@ def run_verification_gate(ir: WorkflowIR) -> VerificationResult:
     all_violations.extend(rbac_violations)
 
     # ----------------------------------------------------------------------- #
-    # Check 3: Graph Verification
+    # Check 3: Graph Topology
     # ----------------------------------------------------------------------- #
     t0 = time.time()
     graph_violations = verify_graph(ir)
     duration = (time.time() - t0) * 1000
-
     graph_stats = get_graph_stats(ir)
+    graph_passed = not any(v.severity in ("critical", "high", "error") for v in graph_violations)
+
     checks_run.append(CheckResult(
-        check_name="Graph Structure Verification",
+        check_name="Graph Topology",
         check_type="graph",
-        passed=not any(v.severity == "error" for v in graph_violations),
+        passed=graph_passed,
         duration_ms=round(duration, 2),
         violations=graph_violations,
         details=graph_stats,
@@ -90,19 +177,20 @@ def run_verification_gate(ir: WorkflowIR) -> VerificationResult:
     all_violations.extend(graph_violations)
 
     # ----------------------------------------------------------------------- #
-    # Check 4: Compliance
+    # Check 4: Compliance Rules
     # ----------------------------------------------------------------------- #
     t0 = time.time()
-    compliance_violations = check_compliance(ir)
+    compliance_violations = check_compliance(ir, active_compliance_rules)
     duration = (time.time() - t0) * 1000
+    compliance_passed = not any(v.severity in ("critical", "high", "error") for v in compliance_violations)
 
     checks_run.append(CheckResult(
-        check_name="Compliance Rule Evaluation",
+        check_name="Compliance Rules",
         check_type="compliance",
-        passed=not any(v.severity == "error" for v in compliance_violations),
+        passed=compliance_passed,
         duration_ms=round(duration, 2),
         violations=compliance_violations,
-        details={"rules_evaluated": 4},
+        details={"rules_evaluated": len(active_compliance_rules) if active_compliance_rules else 4},
     ))
     all_violations.extend(compliance_violations)
 
@@ -112,11 +200,12 @@ def run_verification_gate(ir: WorkflowIR) -> VerificationResult:
     t0 = time.time()
     conflict_violations = detect_conflicts(ir)
     duration = (time.time() - t0) * 1000
+    conflict_passed = not any(v.severity in ("critical", "high", "error") for v in conflict_violations)
 
     checks_run.append(CheckResult(
-        check_name="Policy Conflict Detection",
+        check_name="Conflict Detection",
         check_type="conflict",
-        passed=not any(v.severity == "error" for v in conflict_violations),
+        passed=conflict_passed,
         duration_ms=round(duration, 2),
         violations=conflict_violations,
         details={},
@@ -124,41 +213,62 @@ def run_verification_gate(ir: WorkflowIR) -> VerificationResult:
     all_violations.extend(conflict_violations)
 
     # ----------------------------------------------------------------------- #
-    # Aggregate results
+    # Aggregate results dynamically (Single Source of Truth)
     # ----------------------------------------------------------------------- #
-    total_errors = sum(1 for v in all_violations if v.severity == "error")
-    total_warnings = sum(1 for v in all_violations if v.severity == "warning")
-    passed = total_errors == 0
+    blocking_checks = [c for c in checks_run if not c.passed]
+    passed_checks = [c.check_name for c in checks_run if c.passed]
+    failed_checks = [c.check_name for c in checks_run if not c.passed]
+
+    total_errors = sum(1 for v in all_violations if v.severity in ("critical", "high", "error"))
+    total_warnings = sum(1 for v in all_violations if v.severity in ("medium", "low", "warning"))
+    total_info = sum(1 for v in all_violations if v.severity == "info")
+
+    passed = len(blocking_checks) == 0 and total_errors == 0
     execution_allowed = passed
 
-    # Generate summary
+    score, risk_level = calculate_verification_score_and_risk(passed, all_violations)
+
+    # Issue unique verification_id if verification passed
+    verification_id = None
     if passed:
+        verification_id = f"verif_{uuid.uuid4().hex[:12]}"
+        register_verification_token(verification_id, workflow_id or "", ir)
         summary = (
             f"✓ Workflow '{ir.workflow_name}' passed all {len(checks_run)} verification checks. "
-            f"No errors detected."
+            f"Status: VERIFIED. Execution allowed (ID: {verification_id})."
         )
         if total_warnings > 0:
-            summary += f" {total_warnings} warning(s) noted."
+            summary += f" ({total_warnings} warnings noted)."
     else:
-        failed_checks = [c.check_name for c in checks_run if not c.passed]
         summary = (
-            f"✗ Workflow '{ir.workflow_name}' BLOCKED — "
-            f"{total_errors} error(s) in {', '.join(failed_checks)}. "
-            f"Workflow cannot proceed to execution until all errors are resolved."
+            f"✗ Workflow '{ir.workflow_name}' BLOCKED — {len(failed_checks)} check(s) failed "
+            f"({', '.join(failed_checks)}) with {total_errors} blocking violation(s). "
+            f"Execution is completely blocked."
         )
 
     return VerificationResult(
         passed=passed,
         execution_allowed=execution_allowed,
+        verification_id=verification_id,
+        score=score,
+        risk_level=risk_level,
         checks_run=checks_run,
         violations=all_violations,
+        failed_checks=failed_checks,
+        passed_checks=passed_checks,
         summary=summary,
         total_errors=total_errors,
         total_warnings=total_warnings,
+        total_info=total_info,
     )
 
 
-async def run_full_pipeline(policy_text: str, scenario: str | None = None) -> PipelineResult:
+async def run_full_pipeline(
+    policy_text: str,
+    scenario: Optional[str] = None,
+    active_compliance_rules: Optional[list[ComplianceRule]] = None,
+    workflow_id: Optional[str] = None,
+) -> PipelineResult:
     """
     Run the complete 8-step pipeline from raw policy text to verification result.
 
@@ -167,15 +277,16 @@ async def run_full_pipeline(policy_text: str, scenario: str | None = None) -> Pi
     from app.services.nlp_parser import parse_policy
     from app.services.ir_builder import build_ir
 
+    target_wf_id = workflow_id or f"wf_{uuid.uuid4().hex[:8]}"
     pipeline_steps: list[PipelineStepResult] = []
 
     # Step 1: Submit Policy
     pipeline_steps.append(PipelineStepResult(
         step_number=1,
-        step_name="Submit Policy",
+        step_name="Submit Policy Input",
         status="passed",
         input_data={"policy_text": policy_text},
-        output_data={"length": len(policy_text)},
+        output_data={"length": len(policy_text), "workflow_id": target_wf_id},
     ))
 
     # Step 2: NLP Parse
@@ -186,7 +297,7 @@ async def run_full_pipeline(policy_text: str, scenario: str | None = None) -> Pi
         parsed_dict = parsed.model_dump()
         pipeline_steps.append(PipelineStepResult(
             step_number=2,
-            step_name="AI/NLP Parser",
+            step_name="AI / NLP Structural Parser",
             status="passed",
             duration_ms=round(duration, 2),
             input_data={"policy_text": policy_text},
@@ -195,13 +306,14 @@ async def run_full_pipeline(policy_text: str, scenario: str | None = None) -> Pi
     except Exception as e:
         pipeline_steps.append(PipelineStepResult(
             step_number=2,
-            step_name="AI/NLP Parser",
+            step_name="AI / NLP Structural Parser",
             status="blocked",
             error=str(e),
         ))
         return PipelineResult(
             policy_text=policy_text,
             steps=pipeline_steps,
+            workflow_id=target_wf_id,
         )
 
     # Step 3: Build IR
@@ -217,84 +329,84 @@ async def run_full_pipeline(policy_text: str, scenario: str | None = None) -> Pi
         output_data=ir_dict,
     ))
 
-    # Steps 4-6: Verification (handled by gate)
+    # Step 4, 5, 6, 7: Run verification gate
     t0 = time.time()
-    verification = run_verification_gate(ir)
+    verification = run_verification_gate(
+        ir,
+        active_compliance_rules=active_compliance_rules,
+        workflow_id=target_wf_id,
+    )
     duration = (time.time() - t0) * 1000
 
-    # Map check results to pipeline steps
-    check_step_map = {
-        "ambiguity": (4, "Ambiguity Detection"),
-        "rbac": (5, "RBAC Authorization"),
-        "graph": (6, "Graph & Compliance Verification"),
-    }
+    # Map verification check outputs to specific pipeline steps
+    chk_map = {c.check_type: c for c in verification.checks_run}
 
-    for check in verification.checks_run:
-        step_num, step_name = check_step_map.get(
-            check.check_type, (6, "Graph & Compliance Verification")
-        )
-        # Don't duplicate step 6
-        existing = [s for s in pipeline_steps if s.step_number == step_num]
-        if existing:
-            continue
+    # Step 4: Semantic Analysis
+    amb_chk = chk_map.get("ambiguity")
+    pipeline_steps.append(PipelineStepResult(
+        step_number=4,
+        step_name="Semantic Ambiguity Detection",
+        status="passed" if amb_chk and amb_chk.passed else "blocked",
+        duration_ms=amb_chk.duration_ms if amb_chk else 0.0,
+        output_data={"violations": [v.model_dump() for v in (amb_chk.violations if amb_chk else [])]},
+    ))
 
-        pipeline_steps.append(PipelineStepResult(
-            step_number=step_num,
-            step_name=step_name,
-            status="passed" if check.passed else "blocked",
-            duration_ms=check.duration_ms,
-            output_data={
-                "check_name": check.check_name,
-                "violations": [v.model_dump() for v in check.violations],
-            },
-        ))
+    # Step 5: RBAC Authorization
+    rbac_chk = chk_map.get("rbac")
+    pipeline_steps.append(PipelineStepResult(
+        step_number=5,
+        step_name="Casbin RBAC Authorization",
+        status="passed" if rbac_chk and rbac_chk.passed else "blocked",
+        duration_ms=rbac_chk.duration_ms if rbac_chk else 0.0,
+        output_data={"violations": [v.model_dump() for v in (rbac_chk.violations if rbac_chk else [])]},
+    ))
 
-    # Ensure steps 4, 5, 6 all exist
-    for step_num, step_name in [(4, "Ambiguity Detection"), (5, "RBAC Authorization"), (6, "Graph & Compliance")]:
-        if not any(s.step_number == step_num for s in pipeline_steps):
-            pipeline_steps.append(PipelineStepResult(
-                step_number=step_num,
-                step_name=step_name,
-                status="passed",
-            ))
+    # Step 6: Graph Topology
+    graph_chk = chk_map.get("graph")
+    pipeline_steps.append(PipelineStepResult(
+        step_number=6,
+        step_name="NetworkX Graph & Topology Verification",
+        status="passed" if graph_chk and graph_chk.passed else "blocked",
+        duration_ms=graph_chk.duration_ms if graph_chk else 0.0,
+        output_data={"violations": [v.model_dump() for v in (graph_chk.violations if graph_chk else [])]},
+    ))
 
-    # Step 7: Verification Gate
+    # Step 7: Compliance & Conflict Rules
+    comp_chk = chk_map.get("compliance")
+    conf_chk = chk_map.get("conflict")
+    step7_passed = (comp_chk.passed if comp_chk else True) and (conf_chk.passed if conf_chk else True)
+    step7_violations = (comp_chk.violations if comp_chk else []) + (conf_chk.violations if conf_chk else [])
     pipeline_steps.append(PipelineStepResult(
         step_number=7,
-        step_name="Verification Gate",
+        step_name="Compliance & Policy Conflict Evaluator",
+        status="passed" if step7_passed else "blocked",
+        duration_ms=round(((comp_chk.duration_ms if comp_chk else 0.0) + (conf_chk.duration_ms if conf_chk else 0.0)), 2),
+        output_data={"violations": [v.model_dump() for v in step7_violations]},
+    ))
+
+    # Step 8: Final Verification Gatekeeper
+    pipeline_steps.append(PipelineStepResult(
+        step_number=8,
+        step_name="Verification Gatekeeper",
         status="passed" if verification.passed else "blocked",
         duration_ms=round(duration, 2),
         output_data=verification.model_dump(),
     ))
 
-    # Step 8: Generate Workflow Graph
-    if verification.execution_allowed:
-        # Build graph data for React Flow
-        graph_data = _build_react_flow_graph(ir)
-        pipeline_steps.append(PipelineStepResult(
-            step_number=8,
-            step_name="Generate Workflow Graph",
-            status="passed",
-            output_data=graph_data,
-        ))
-    else:
-        pipeline_steps.append(PipelineStepResult(
-            step_number=8,
-            step_name="Generate Workflow Graph",
-            status="skipped",
-            error="Workflow blocked at verification gate.",
-        ))
+    # Generate React Flow graph structure (accessible for visual canvas inspection)
+    graph_data = _build_react_flow_graph(ir)
 
-    # Sort steps by number
+    # Sort steps by step_number
     pipeline_steps.sort(key=lambda s: s.step_number)
 
     return PipelineResult(
         policy_text=policy_text,
         steps=pipeline_steps,
-        parsed_policy=parsed_dict if 'parsed_dict' in dir() else None,
-        workflow_ir=ir_dict if 'ir_dict' in dir() else None,
+        parsed_policy=parsed_dict,
+        workflow_ir=ir_dict,
         verification=verification,
-        graph_data=graph_data if verification.execution_allowed else None,
+        graph_data=graph_data,
+        workflow_id=target_wf_id,
     )
 
 
@@ -303,10 +415,8 @@ def _build_react_flow_graph(ir: WorkflowIR) -> dict:
     nodes = []
     edges = []
 
-    # Layout positions (simple vertical layout)
-    step_ids = ["START"] + [s.id for s in ir.steps] + ["END"]
     y_spacing = 120
-    x_center = 300
+    x_center = 280
 
     for i, node in enumerate(ir.nodes):
         y = i * y_spacing

@@ -49,11 +49,14 @@ class ComplianceRule(BaseModel):
     """A compliance rule in the library."""
     id: Optional[int] = None
     name: str
-    description: str
-    condition: str = Field(..., description="e.g. 'purchase_amount > 10000'")
-    required_action: str = Field(..., description="e.g. 'finance_approval'")
-    severity: Literal["error", "warning", "info"] = "error"
+    description: Optional[str] = ""
+    rule_type: Literal["threshold", "requirement", "approval", "role", "multi_condition"] = "threshold"
+    threshold: Optional[float] = None
+    condition: Optional[str] = ""
+    required_action: Optional[str] = ""
+    severity: Literal["info", "low", "medium", "high", "critical", "error", "warning"] = "high"
     active: bool = True
+    created_at: Optional[datetime] = None
 
 
 # Rebuild models to resolve forward references

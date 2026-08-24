@@ -4,14 +4,16 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 
+SeverityLevel = Literal["info", "low", "medium", "high", "critical", "error", "warning"]
+
 
 class Violation(BaseModel):
     """A single verification violation with full explainability."""
     check_type: Literal["ambiguity", "rbac", "graph", "compliance", "conflict"] = Field(
         ..., description="Which verification check produced this violation"
     )
-    severity: Literal["error", "warning", "info"] = Field(
-        ..., description="Severity level"
+    severity: SeverityLevel = Field(
+        ..., description="Severity level: info, low, medium, high, critical"
     )
     problem: str = Field(..., description="What went wrong")
     cause: str = Field(..., description="Why it went wrong")
@@ -21,7 +23,7 @@ class Violation(BaseModel):
 
 class CheckResult(BaseModel):
     """Result of a single verification check."""
-    check_name: str = Field(..., description="e.g. 'Ambiguity Detection', 'RBAC Authorization'")
+    check_name: str = Field(..., description="e.g. 'Semantic Analysis', 'RBAC Authorization'")
     check_type: Literal["ambiguity", "rbac", "graph", "compliance", "conflict"]
     passed: bool
     duration_ms: float = 0.0
@@ -30,14 +32,20 @@ class CheckResult(BaseModel):
 
 
 class VerificationResult(BaseModel):
-    """Aggregated result from the Verification Gate (Step 7)."""
+    """Aggregated result from the Verification Gate (Step 7/8)."""
     passed: bool = Field(..., description="Whether the workflow passed all checks")
     execution_allowed: bool = Field(..., description="Whether the workflow can proceed to execution")
+    verification_id: Optional[str] = Field(None, description="Cryptographic/unique verification token for execution")
+    score: int = Field(100, description="Server-calculated verification score 0-100")
+    risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = Field("LOW", description="Computed risk tier")
     checks_run: list[CheckResult] = Field(default_factory=list)
     violations: list[Violation] = Field(default_factory=list)
+    failed_checks: list[str] = Field(default_factory=list, description="Names of failed checks")
+    passed_checks: list[str] = Field(default_factory=list, description="Names of passed checks")
     summary: str = Field("", description="Human-readable summary of the verification outcome")
     total_errors: int = 0
     total_warnings: int = 0
+    total_info: int = 0
 
 
 class PipelineStepResult(BaseModel):
@@ -60,3 +68,4 @@ class PipelineResult(BaseModel):
     verification: Optional[VerificationResult] = None
     graph_data: Optional[dict] = None
     workflow_id: Optional[str] = None
+

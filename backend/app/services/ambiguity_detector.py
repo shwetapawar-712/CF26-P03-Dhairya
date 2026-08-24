@@ -58,26 +58,24 @@ def detect_ambiguities(ir: WorkflowIR) -> list[Violation]:
     violations: list[Violation] = []
 
     for step in ir.steps:
-        # Check for ambiguous roles
-        role_lower = step.role.lower().strip()
-        if role_lower in AMBIGUOUS_ROLES:
-            violations.append(Violation(
-                check_type="ambiguity",
-                severity="error",
-                problem=f"Ambiguous role '{step.role}' assigned to step '{step.action}'.",
-                cause=AMBIGUOUS_ROLES[role_lower],
-                suggested_fix=f"Replace '{step.role}' with a specific role, e.g., 'Finance Manager' or 'Procurement Manager'.",
-                metadata={"step_id": step.id, "field": "role", "current_value": step.role},
-            ))
-
         # Check for missing / unspecified roles
+        role_lower = step.role.lower().strip()
         if role_lower in ("unspecified", "", "unknown", "tbd", "none"):
             violations.append(Violation(
                 check_type="ambiguity",
-                severity="error",
+                severity="critical",
                 problem=f"No role assigned to step '{step.action}'.",
-                cause="Every workflow step must have a responsible role for accountability and RBAC checks.",
-                suggested_fix=f"Assign a specific role to '{step.action}', e.g., 'Procurement Officer', 'Finance Manager'.",
+                cause="Every workflow step must have an accountable, explicit role for governance and RBAC verification.",
+                suggested_fix=f"Assign a specific role to '{step.action}', e.g., 'Procurement Officer' or 'Finance Manager'.",
+                metadata={"step_id": step.id, "field": "role", "current_value": step.role},
+            ))
+        elif role_lower in AMBIGUOUS_ROLES:
+            violations.append(Violation(
+                check_type="ambiguity",
+                severity="high",
+                problem=f"Ambiguous role '{step.role}' assigned to step '{step.action}'.",
+                cause=AMBIGUOUS_ROLES[role_lower],
+                suggested_fix=f"Replace '{step.role}' with an exact role, e.g., 'Finance Manager' or 'Procurement Officer'.",
                 metadata={"step_id": step.id, "field": "role", "current_value": step.role},
             ))
 
@@ -88,10 +86,10 @@ def detect_ambiguities(ir: WorkflowIR) -> list[Violation]:
                 if vague_term in threshold_lower and not re.search(r'\$[\d,]+', step.threshold):
                     violations.append(Violation(
                         check_type="ambiguity",
-                        severity="error",
+                        severity="high",
                         problem=f"Unquantified threshold '{step.threshold}' in step '{step.action}'.",
                         cause=explanation,
-                        suggested_fix=f"Replace '{step.threshold}' with a specific value, e.g., '$10,000' or '500 units'.",
+                        suggested_fix=f"Specify an exact quantifiable limit, e.g., '$10,000' or '500 units'.",
                         metadata={"step_id": step.id, "field": "threshold", "current_value": step.threshold},
                     ))
 
@@ -102,10 +100,10 @@ def detect_ambiguities(ir: WorkflowIR) -> list[Violation]:
                 if vague_term == value_lower:
                     violations.append(Violation(
                         check_type="ambiguity",
-                        severity="error",
+                        severity="high",
                         problem=f"Vague condition value '{cond.value}' in step '{step.action}'.",
                         cause=explanation,
-                        suggested_fix=f"Replace '{cond.value}' with a measurable value.",
+                        suggested_fix=f"Replace '{cond.value}' with a quantifiable threshold.",
                         metadata={"step_id": step.id, "field": "condition_value", "current_value": cond.value},
                     ))
 
@@ -115,7 +113,7 @@ def detect_ambiguities(ir: WorkflowIR) -> list[Violation]:
             if vague_verb in action_lower:
                 violations.append(Violation(
                     check_type="ambiguity",
-                    severity="warning",
+                    severity="medium",
                     problem=f"Vague action verb in step '{step.action}'.",
                     cause=explanation,
                     suggested_fix=f"Replace '{step.action}' with a specific action verb.",
@@ -128,9 +126,9 @@ def detect_ambiguities(ir: WorkflowIR) -> list[Violation]:
             violations.append(Violation(
                 check_type="ambiguity",
                 severity="info",
-                problem=f"Step '{step.action}' has no description.",
-                cause="Descriptions help operators understand what the step entails.",
-                suggested_fix=f"Add a description explaining what '{step.action}' involves.",
+                problem=f"Step '{step.action}' has no detailed description.",
+                cause="Step descriptions improve operational auditability and operator clarity.",
+                suggested_fix=f"Add a brief description explaining what '{step.action}' entails.",
                 metadata={"step_id": step.id, "field": "description"},
             ))
 

@@ -64,19 +64,19 @@ def detect_conflicts(ir: WorkflowIR) -> list[Violation]:
 
     for approval_step in approval_steps:
         for action_step in non_approval_steps:
-            if approval_step.role == action_step.role:
+            if approval_step.role.lower() == action_step.role.lower() and approval_step.role:
                 # Same role approving and executing — separation of duty concern
                 if approval_step.id in action_step.dependencies or action_step.id in approval_step.dependencies:
                     violations.append(Violation(
                         check_type="conflict",
-                        severity="warning",
-                        problem=f"Separation of duty conflict: '{approval_step.role}' both executes and approves.",
+                        severity="high",
+                        problem=f"Separation of Duty (SOD) conflict: '{approval_step.role}' both executes and approves.",
                         cause=(
                             f"'{approval_step.role}' performs '{action_step.action}' and also "
-                            f"approves '{approval_step.action}'. This violates separation of duty principles."
+                            f"approves '{approval_step.action}'. In standard governance, an executor cannot approve their own dependent transaction."
                         ),
                         suggested_fix=(
-                            f"Assign the approval step '{approval_step.action}' to a different role, "
+                            f"Assign the approval step '{approval_step.action}' to an independent authority, "
                             f"or assign '{action_step.action}' to a different executor."
                         ),
                         metadata={
@@ -110,7 +110,7 @@ def detect_conflicts(ir: WorkflowIR) -> list[Violation]:
                 if cond1.value == cond2.value:
                     violations.append(Violation(
                         check_type="conflict",
-                        severity="error",
+                        severity="high",
                         problem=f"Contradictory conditions on field '{cond1.field}'.",
                         cause=(
                             f"Step '{action1}' requires {cond1.field} {cond1.operator.value} {cond1.value}, "
@@ -133,7 +133,7 @@ def detect_conflicts(ir: WorkflowIR) -> list[Violation]:
         if step.id in seen_ids:
             violations.append(Violation(
                 check_type="conflict",
-                severity="error",
+                severity="critical",
                 problem=f"Duplicate step ID: '{step.id}' appears multiple times.",
                 cause=f"Step ID '{step.id}' is used by both '{seen_ids[step.id]}' and '{step.action}'.",
                 suggested_fix=f"Rename one of the duplicate steps to have a unique ID.",

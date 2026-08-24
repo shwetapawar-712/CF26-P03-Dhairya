@@ -1,122 +1,61 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Layers, ArrowRight, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
-import { getWorkflows, getWorkflowVersions } from '../api/client';
+import { Clock, X, RefreshCw } from 'lucide-react';
+import { getWorkflowVersions } from '../api/client';
 
-export default function VersionViewer() {
-  const [workflows, setWorkflows] = useState([]);
-  const [selectedWfId, setSelectedWfId] = useState('');
+export default function VersionViewer({ workflowId = 1, onClose }) {
   const [versions, setVersions] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const list = await getWorkflows();
-        setWorkflows(list);
-        if (list.length > 0) {
-          setSelectedWfId(list[0].workflow_id);
-        }
-      } catch (err) {
-        console.error('Failed to load workflows:', err);
-      }
-    }
-    load();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedWfId) return;
-    async function loadVersions() {
-      setIsLoading(true);
-      try {
-        const verList = await getWorkflowVersions(selectedWfId);
-        setVersions(verList);
-      } catch (err) {
-        console.error('Failed to load versions:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    loadVersions();
-  }, [selectedWfId]);
+    getWorkflowVersions(workflowId)
+      .then((res) => setVersions(res))
+      .catch((err) => console.error(err))
+      .finally(() => setLoading(false));
+  }, [workflowId]);
 
   return (
-    <div className="space-y-5">
-      <div className="saas-card p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-indigo-600" />
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-            Workflow Version History & Verification Impact Diff
-          </h3>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-xs">
+      <div className="vf-bg-card border vf-border rounded-xl shadow-2xl max-w-3xl w-full p-5 flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between pb-3 border-b vf-border">
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5 text-indigo-400" />
+            <h3 className="text-sm font-bold vf-text-primary">Workflow Version History</h3>
+          </div>
+          {onClose && (
+            <button onClick={onClose} className="vf-text-secondary hover:vf-text-primary cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
-        {workflows.length > 0 && (
-          <select
-            value={selectedWfId}
-            onChange={(e) => setSelectedWfId(e.target.value)}
-            className="bg-white border border-slate-200 rounded-md p-1.5 text-xs text-slate-800 focus:outline-none focus:border-indigo-500"
-          >
-            {workflows.map((w) => (
-              <option key={w.workflow_id} value={w.workflow_id}>
-                {w.name} ({w.workflow_id})
-              </option>
-            ))}
-          </select>
+        <div className="py-4 overflow-y-auto space-y-2 flex-1">
+          {loading ? (
+            <div className="p-8 text-center vf-text-secondary font-mono">
+              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-400" /> Loading version history...
+            </div>
+          ) : versions.length === 0 ? (
+            <div className="p-8 text-center vf-text-tertiary italic">No previous versions recorded.</div>
+          ) : (
+            <div className="space-y-2">
+              {versions.map((ver) => (
+                <div key={ver.id} className="p-3 vf-bg-editor rounded border vf-border space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold vf-text-primary text-xs">Version v{ver.version_number || ver.id}</span>
+                    <span className="vf-text-tertiary text-[10px] font-mono">{ver.created_at || 'Saved'}</span>
+                  </div>
+                  <p className="vf-text-secondary text-[11px] font-mono line-clamp-2">{ver.policy_text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {onClose && (
+          <div className="pt-3 border-t vf-border flex justify-end">
+            <button onClick={onClose} className="btn btn-secondary text-xs cursor-pointer">Close</button>
+          </div>
         )}
       </div>
-
-      {versions.length === 0 ? (
-        <div className="saas-card p-8 text-center text-slate-400 text-xs">
-          No version history recorded yet for this workflow.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {versions.map((ver) => (
-            <div key={ver.id} className="saas-card p-5 space-y-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="badge badge-indigo">Version {ver.version}</span>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {new Date(ver.created_at).toLocaleTimeString()}
-                  </span>
-                </div>
-
-                <h4 className="font-bold text-slate-900 text-sm mb-1">
-                  {ver.changes_summary || 'Initial compilation'}
-                </h4>
-                <p className="text-slate-600 text-xs italic bg-slate-50 p-2.5 rounded-lg border border-slate-200 mb-3">
-                  "{ver.policy_text}"
-                </p>
-
-                {/* Verification Impact Breakdown */}
-                <div className="bg-indigo-50/60 p-3 rounded-lg border border-indigo-100 space-y-1.5 text-xs">
-                  <span className="text-[10px] font-bold text-indigo-900 uppercase block tracking-wider">
-                    Verification Impact Analysis
-                  </span>
-                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> RBAC roles remain valid
-                  </div>
-                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Graph topological structure valid
-                  </div>
-                  <div className="flex items-center gap-1.5 text-amber-700 font-semibold text-[11px]">
-                    <AlertTriangle className="w-3.5 h-3.5" /> Threshold compliance updated
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[10px] text-slate-300 max-h-36 overflow-y-auto">
-                <div className="text-slate-500 text-[9px] uppercase mb-1">Steps in Version {ver.version}</div>
-                {ver.ir_json?.steps?.map((s, idx) => (
-                  <div key={idx} className="flex items-center justify-between py-0.5 border-b border-slate-900 last:border-0">
-                    <span className="text-cyan-300">{s.action}</span>
-                    <span className="text-slate-400">{s.role}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

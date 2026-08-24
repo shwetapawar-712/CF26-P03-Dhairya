@@ -1,98 +1,207 @@
 import React, { useState, useEffect } from 'react';
-import { GitBranch, ShieldCheck, ShieldAlert, Eye, Search, Filter } from 'lucide-react';
-import { getWorkflows } from '../api/client';
+import { GitBranch, RefreshCw, X, CheckCircle2, XCircle, FolderOpen, Trash2, ExternalLink, Clock, Tag } from 'lucide-react';
+import { getWorkflows, deleteWorkflow } from '../api/client';
 
-export default function WorkflowsListView() {
+const STATUS_CONFIG = {
+  verified: { icon: <CheckCircle2 className="w-3 h-3" />, className: 'text-emerald-400 bg-emerald-950/60 border-emerald-700/40' },
+  saved: { icon: <CheckCircle2 className="w-3 h-3" />, className: 'text-indigo-400 bg-indigo-950/60 border-indigo-700/40' },
+  failed: { icon: <XCircle className="w-3 h-3" />, className: 'text-rose-400 bg-rose-950/60 border-rose-700/40' },
+  blocked: { icon: <XCircle className="w-3 h-3" />, className: 'text-orange-400 bg-orange-950/60 border-orange-700/40' },
+};
+
+export default function WorkflowsListView({ onClose, pipelineResult, onLoadWorkflow }) {
   const [workflows, setWorkflows] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedWorkflow, setSelectedWorkflow] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
-    async function load() {
-      setIsLoading(true);
-      try {
-        const list = await getWorkflows();
-        setWorkflows(list);
-      } catch (err) {
-        console.error('Failed to load workflows list:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    load();
+    fetchWorkflows();
   }, []);
 
+  const fetchWorkflows = () => {
+    setLoading(true);
+    setError('');
+    getWorkflows()
+      .then((data) => setWorkflows(data))
+      .catch((err) => {
+        console.error('Failed to load workflows:', err);
+        setError('Failed to load workflows. Is the backend running?');
+      })
+      .finally(() => setLoading(false));
+  };
+
+  const handleDelete = async (workflowId, name) => {
+    if (!window.confirm(`Delete workflow "${name}" from the directory?`)) return;
+    setDeletingId(workflowId);
+    try {
+      await deleteWorkflow(workflowId);
+      setWorkflows(prev => prev.filter(w => w.workflow_id !== workflowId));
+    } catch (err) {
+      console.error('Failed to delete workflow:', err);
+      alert('Failed to delete workflow. Please try again.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  // Group workflows by category
+  const grouped = workflows.reduce((acc, wf) => {
+    const cat = wf.category || 'General';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(wf);
+    return acc;
+  }, {});
+
+  const formatDate = (ts) => {
+    if (!ts) return 'Unknown';
+    try {
+      return new Date(ts).toLocaleString('en-US', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
+    } catch { return ts; }
+  };
+
   return (
-    <div className="space-y-5">
-      <div className="saas-card p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <GitBranch className="w-4 h-4 text-indigo-600" />
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-            Compiled Workflows Directory
-          </h3>
-        </div>
-        <span className="text-xs text-slate-500 font-medium">
-          {workflows.length} Compiled Graphs
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {workflows.length === 0 ? (
-          <div className="col-span-full saas-card p-8 text-center text-slate-400 text-xs">
-            No workflows compiled yet. Use Compiler Studio to compile policies into verified graph objects.
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in text-xs">
+      <div className="vf-bg-card border vf-border rounded-xl shadow-2xl max-w-4xl w-full flex flex-col max-h-[88vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b vf-border">
+          <div className="flex items-center gap-2">
+            <FolderOpen className="w-5 h-5 text-indigo-400" />
+            <h3 className="text-sm font-bold vf-text-primary">Workflow Directory</h3>
+            <span className="badge badge-indigo text-[9px]">{workflows.length} Workflows</span>
           </div>
-        ) : (
-          workflows.map((wf) => (
-            <div key={wf.workflow_id} className="saas-card p-4 flex flex-col justify-between space-y-3">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="badge badge-indigo text-[10px] font-mono">{wf.workflow_id}</span>
-                  <span className={`badge ${wf.status === 'verified' ? 'badge-green' : 'badge-red'}`}>
-                    {wf.status}
-                  </span>
-                </div>
-                <h4 className="font-bold text-slate-900 text-sm mb-1">{wf.name}</h4>
-                <p className="text-xs text-slate-500 line-clamp-2">
-                  {wf.ir_json?.description || 'Workflow compiled from policy.'}
-                </p>
-              </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchWorkflows}
+              className="vf-text-secondary hover:text-indigo-400 transition-colors p-1 rounded hover:bg-indigo-950/40 cursor-pointer"
+              title="Refresh"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            {onClose && (
+              <button onClick={onClose} className="vf-text-secondary hover:vf-text-primary cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+        </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                <span className="text-slate-400 font-mono text-[11px]">
-                  {wf.created_at ? new Date(wf.created_at).toLocaleDateString() : 'Recent'}
-                </span>
-                <button
-                  onClick={() => setSelectedWorkflow(wf)}
-                  className="btn btn-secondary text-[11px] py-1 px-2.5"
-                >
-                  <Eye className="w-3 h-3" /> Inspect IR
-                </button>
-              </div>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {loading ? (
+            <div className="py-10 text-center vf-text-secondary flex flex-col items-center gap-2">
+              <RefreshCw className="w-5 h-5 animate-spin text-indigo-400" />
+              Loading workflows...
             </div>
-          ))
+          ) : error ? (
+            <div className="py-8 text-center text-rose-400 italic">{error}</div>
+          ) : workflows.length === 0 ? (
+            <div className="py-10 text-center space-y-2 border border-dashed vf-border rounded-lg">
+              <FolderOpen className="w-8 h-8 vf-text-tertiary mx-auto" />
+              <p className="vf-text-secondary italic">No workflows saved yet.</p>
+              <p className="vf-text-tertiary text-[11px]">
+                Compile and verify a policy in the Policy Studio,<br />
+                then the workflow will be saved here automatically.
+              </p>
+            </div>
+          ) : (
+            Object.entries(grouped).map(([category, wfs]) => (
+              <div key={category} className="space-y-2">
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider vf-text-secondary">
+                  <Tag className="w-3 h-3 text-indigo-400" />
+                  {category}
+                  <span className="vf-text-tertiary">({wfs.length})</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {wfs.map((wf) => {
+                    const statusCfg = STATUS_CONFIG[wf.status] || STATUS_CONFIG.saved;
+                    return (
+                      <div
+                        key={wf.workflow_id}
+                        className="p-3 vf-bg-editor border vf-border hover:border-indigo-500/50 rounded-lg space-y-2 transition-all"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-bold vf-text-primary text-xs truncate">{wf.name}</p>
+                            {wf.description && (
+                              <p className="text-[10px] vf-text-secondary line-clamp-1 mt-0.5">{wf.description}</p>
+                            )}
+                          </div>
+                          <span className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${statusCfg.className}`}>
+                            {statusCfg.icon}
+                            {wf.status?.toUpperCase() || 'SAVED'}
+                          </span>
+                        </div>
+
+                        {/* Metadata row */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[9px] vf-text-tertiary font-mono">
+                            ID: {wf.workflow_id?.slice(0, 12)}…
+                          </span>
+                          {wf.verification_id && (
+                            <span className="text-[9px] vf-text-tertiary font-mono">
+                              VT: {wf.verification_id.slice(0, 10)}…
+                            </span>
+                          )}
+                          <span className="text-[9px] vf-text-tertiary flex items-center gap-0.5">
+                            <Clock className="w-2.5 h-2.5" />
+                            {formatDate(wf.created_at)}
+                          </span>
+                        </div>
+
+                        {/* Step count if IR exists */}
+                        {wf.ir_json?.steps && (
+                          <p className="text-[9px] vf-text-secondary">
+                            {wf.ir_json.steps.length} workflow steps
+                          </p>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-1.5 pt-1 border-t vf-border-subtle">
+                          {onLoadWorkflow && (
+                            <button
+                              onClick={() => onLoadWorkflow(wf)}
+                              className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold transition-colors cursor-pointer"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Load
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDelete(wf.workflow_id, wf.name)}
+                            disabled={deletingId === wf.workflow_id}
+                            className="flex items-center gap-1 text-[10px] text-rose-400 hover:text-rose-300 font-semibold transition-colors disabled:opacity-50 ml-auto cursor-pointer"
+                          >
+                            {deletingId === wf.workflow_id ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3 h-3" />
+                            )}
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        {onClose && (
+          <div className="p-4 border-t vf-border flex justify-between items-center">
+            <span className="text-[10px] vf-text-secondary">
+              <GitBranch className="w-3 h-3 inline mr-1 text-indigo-400" />
+              Workflows are persisted in the database and versioned per compilation.
+            </span>
+            <button onClick={onClose} className="btn btn-secondary text-xs cursor-pointer">Close</button>
+          </div>
         )}
       </div>
-
-      {selectedWorkflow && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-slate-200 rounded-xl shadow-xl max-w-2xl w-full p-5 flex flex-col max-h-[80vh]">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <span className="font-bold text-slate-900 text-sm">
-                Workflow IR Data — {selectedWorkflow.workflow_id}
-              </span>
-              <button
-                onClick={() => setSelectedWorkflow(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                ✕
-              </button>
-            </div>
-            <pre className="p-4 bg-slate-950 text-cyan-300 font-mono text-[11px] overflow-auto rounded-lg mt-3 flex-1">
-              {JSON.stringify(selectedWorkflow.ir_json, null, 2)}
-            </pre>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

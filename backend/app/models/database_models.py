@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models for the NLC database."""
 
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, JSON, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -38,7 +38,10 @@ class Workflow(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     workflow_id = Column(String(100), unique=True, nullable=False)
+    verification_id = Column(String(100), default="")
     name = Column(String(200), nullable=False)
+    category = Column(String(100), default="General")
+    description = Column(Text, default="")
     policy_id = Column(Integer, ForeignKey("policies.id"), nullable=True)
     ir_json = Column(JSON, default=dict)
     graph_json = Column(JSON, default=dict)
@@ -88,6 +91,7 @@ class AuditLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     workflow_id = Column(String(100), default="")
+    verification_id = Column(String(100), default="")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     action = Column(String(100), nullable=False)  # submit, verify, execute, fail
     policy_text = Column(Text, default="")
@@ -126,8 +130,10 @@ class ComplianceRuleModel(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), nullable=False)
     description = Column(Text, default="")
-    condition = Column(String(500), nullable=False)
-    required_action = Column(String(200), nullable=False)
+    rule_type = Column(String(50), default="threshold")  # threshold, requirement, approval, role, multi_condition
+    threshold = Column(Float, nullable=True)
+    condition = Column(String(500), default="")
+    required_action = Column(String(200), default="")
     severity = Column(String(20), default="error")
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

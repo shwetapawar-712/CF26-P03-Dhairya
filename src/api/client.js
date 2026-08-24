@@ -37,8 +37,11 @@ export const runWhatIf = async (workflowIr, scenarioId) => {
   return response.data;
 };
 
-export const createExecution = async (workflowIr) => {
-  const response = await api.post('/execute/create', workflowIr);
+export const createExecution = async (workflowIr, verificationId = null) => {
+  const response = await api.post('/execute/create', {
+    workflow_ir: workflowIr,
+    verification_id: verificationId,
+  });
   return response.data;
 };
 
@@ -76,6 +79,11 @@ export const createComplianceRule = async (rule) => {
   return response.data;
 };
 
+export const toggleComplianceRule = async (ruleId) => {
+  const response = await api.patch(`/compliance-rules/${ruleId}/toggle`);
+  return response.data;
+};
+
 export const deleteComplianceRule = async (ruleId) => {
   const response = await api.delete(`/compliance-rules/${ruleId}`);
   return response.data;
@@ -93,6 +101,16 @@ export const getAuditLogs = async () => {
 
 export const getWorkflows = async () => {
   const response = await api.get('/workflows');
+  return response.data;
+};
+
+export const saveWorkflow = async (payload) => {
+  const response = await api.post('/workflows/save', payload);
+  return response.data;
+};
+
+export const deleteWorkflow = async (workflowId) => {
+  const response = await api.delete(`/workflows/${workflowId}`);
   return response.data;
 };
 

@@ -26,9 +26,26 @@ class Base(DeclarativeBase):
 
 
 async def create_tables():
-    """Create all database tables on startup."""
+    """Create all database tables on startup and apply missing schema columns."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migrate existing SQLite databases if columns are missing
+        for tbl in ["audit_logs", "workflows"]:
+            try:
+                await conn.exec_driver_sql(f"ALTER TABLE {tbl} ADD COLUMN verification_id VARCHAR(100) DEFAULT ''")
+            except Exception:
+                pass  # Column already exists
+
+        for col_def in [
+            ("workflows", "category", "VARCHAR(100) DEFAULT 'General'"),
+            ("workflows", "description", "TEXT DEFAULT ''"),
+            ("compliance_rules", "rule_type", "VARCHAR(50) DEFAULT 'threshold'"),
+            ("compliance_rules", "threshold", "FLOAT DEFAULT NULL"),
+        ]:
+            try:
+                await conn.exec_driver_sql(f"ALTER TABLE {col_def[0]} ADD COLUMN {col_def[1]} {col_def[2]}")
+            except Exception:
+                pass  # Column already exists
 
 
 async def get_session() -> AsyncSession:

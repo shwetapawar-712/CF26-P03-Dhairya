@@ -1,9 +1,9 @@
 """
-NLP Parser — Google Gemini API integration with mock fallback.
+NLP Parser — Google Gemini API integration with robust deterministic fallback parser.
 
 Converts natural-language policy text into structured JSON (ParsedPolicy).
-Uses Gemini's structured output mode for reliable JSON extraction.
-Falls back to a deterministic mock parser when no API key is configured.
+Uses Gemini's structured output mode when API key is available.
+Falls back to a pattern-based parser for local execution and preset scenarios.
 """
 
 import json
@@ -84,7 +84,6 @@ async def parse_with_gemini(policy_text: str) -> Optional[ParsedPolicy]:
 
         parsed = json.loads(raw_text)
 
-        # Validate through Pydantic
         steps = []
         for step_data in parsed.get("steps", []):
             conditions = []
@@ -118,10 +117,9 @@ async def parse_with_gemini(policy_text: str) -> Optional[ParsedPolicy]:
 
 
 # --------------------------------------------------------------------------- #
-# Mock / fallback parser (deterministic, clause & pattern-based)
+# Canonical Pre-built scenario data for demo presets
 # --------------------------------------------------------------------------- #
 
-# Pre-built scenario data for demo presets
 SCENARIO_POLICIES = {
     "scenario_1": {
         "text": "Verify the vendor, check the budget, obtain finance approval, and create the procurement ticket.",
@@ -167,41 +165,33 @@ SCENARIO_POLICIES = {
         ),
     },
     "scenario_2": {
-        "text": "Have the manager review the expensive purchase, get approval, and process the order.",
+        "text": "Send expensive purchases to the manager for quick approval.",
         "parsed": ParsedPolicy(
-            workflow_name="Purchase Review Workflow",
+            workflow_name="Ambiguous Manager Approval Workflow",
             steps=[
                 WorkflowStep(
-                    id="manager_review",
-                    action="Manager Review",
+                    id="manager_approval",
+                    action="Manager Quick Approval",
                     role="Manager",  # Ambiguous — which manager?
                     dependencies=[],
-                    approval_required=False,
-                    description="Have the manager review the purchase.",
-                ),
-                WorkflowStep(
-                    id="get_approval",
-                    action="Get Approval",
-                    role="Manager",  # Ambiguous
-                    dependencies=["manager_review"],
                     approval_required=True,
-                    description="Get approval for the expensive purchase.",
-                    threshold="expensive",  # Ambiguous — no numeric value
+                    description="Send expensive purchase for approval.",
+                    threshold="expensive",  # Ambiguous — unquantified threshold
                 ),
                 WorkflowStep(
                     id="process_order",
                     action="Process Order",
                     role="Unspecified",  # Missing role
-                    dependencies=["get_approval"],
+                    dependencies=["manager_approval"],
                     approval_required=False,
-                    description="Process the purchase order.",
+                    description="Process the order after approval.",
                 ),
             ],
-            raw_text="Have the manager review the expensive purchase, get approval, and process the order.",
+            raw_text="Send expensive purchases to the manager for quick approval.",
         ),
     },
     "scenario_3": {
-        "text": "The procurement officer should verify the vendor, approve the finance request, check the budget, and create the ticket.",
+        "text": "Let the Procurement Officer approve the finance request and create the procurement ticket.",
         "parsed": ParsedPolicy(
             workflow_name="Procurement with Auth Violation",
             steps=[
@@ -211,7 +201,7 @@ SCENARIO_POLICIES = {
                     role="Procurement Officer",
                     dependencies=[],
                     approval_required=False,
-                    description="Verify the vendor credentials.",
+                    description="Verify vendor credentials.",
                 ),
                 WorkflowStep(
                     id="finance_approval",
@@ -219,31 +209,22 @@ SCENARIO_POLICIES = {
                     role="Procurement Officer",  # RBAC violation — wrong role
                     dependencies=["verify_vendor"],
                     approval_required=True,
-                    description="Approve the finance request.",
+                    description="Procurement officer approves finance request.",
                 ),
                 WorkflowStep(
-                    id="check_budget",
-                    action="Check Budget",
-                    role="Procurement Officer",
-                    dependencies=["finance_approval"],
-                    approval_required=False,
-                    description="Check budget availability.",
-                    threshold="$10,000",
-                ),
-                WorkflowStep(
-                    id="create_ticket",
+                    id="create_procurement_ticket",
                     action="Create Procurement Ticket",
                     role="Procurement Officer",
-                    dependencies=["check_budget"],
+                    dependencies=["finance_approval"],
                     approval_required=False,
                     description="Create the procurement ticket.",
                 ),
             ],
-            raw_text="The procurement officer should verify the vendor, approve the finance request, check the budget, and create the ticket.",
+            raw_text="Let the Procurement Officer approve the finance request and create the procurement ticket.",
         ),
     },
     "scenario_4": {
-        "text": "Check the budget, if budget fails get finance approval, finance approval requires budget re-check, then create the ticket.",
+        "text": "Budget verification requires finance approval, and finance approval requires the budget to be checked again.",
         "parsed": ParsedPolicy(
             workflow_name="Circular Dependency Workflow",
             steps=[
@@ -251,7 +232,7 @@ SCENARIO_POLICIES = {
                     id="check_budget",
                     action="Check Budget",
                     role="Department Head",
-                    dependencies=["finance_approval"],  # Circular!
+                    dependencies=["finance_approval"],  # Circular dependency!
                     approval_required=False,
                     description="Check available budget.",
                 ),
@@ -259,20 +240,20 @@ SCENARIO_POLICIES = {
                     id="finance_approval",
                     action="Finance Approval",
                     role="Finance Manager",
-                    dependencies=["check_budget"],  # Circular!
+                    dependencies=["check_budget"],  # Circular dependency!
                     approval_required=True,
                     description="Get finance department approval.",
                 ),
                 WorkflowStep(
-                    id="create_ticket",
+                    id="create_procurement_ticket",
                     action="Create Procurement Ticket",
                     role="Procurement Officer",
                     dependencies=["finance_approval"],
                     approval_required=False,
-                    description="Create the ticket after approvals.",
+                    description="Create the procurement ticket.",
                 ),
             ],
-            raw_text="Check the budget, if budget fails get finance approval, finance approval requires budget re-check, then create the ticket.",
+            raw_text="Budget verification requires finance approval, and finance approval requires the budget to be checked again.",
         ),
     },
 }
@@ -282,27 +263,17 @@ def _keyword_parse(policy_text: str) -> ParsedPolicy:
     """Dynamic pattern-based NLP parser for arbitrary policy text."""
     text_lower = policy_text.lower()
 
-    # Known role keywords & exact role names
-    role_map = [
-        ("procurement officer", "Procurement Officer"),
-        ("finance manager", "Finance Manager"),
-        ("department head", "Department Head"),
-        ("cfo", "CFO"),
-        ("manager", "Manager"),
-        ("supervisor", "Supervisor"),
-        ("system admin", "System Admin"),
-        ("admin", "System Admin"),
-    ]
+    # Check for negation phrases regarding finance approval
+    has_no_finance_approval = bool(re.search(r'(?:without|no|skip|avoid)\s+(?:finance\s+approval|approval\s+from\s+finance)', text_lower))
 
-    # Action patterns
+    # Action patterns: (step_id, pattern, action_name, default_role, is_approval)
     action_patterns = [
-        ("verify_vendor", r"verify\s+(?:the\s+)?vendor", "Verify Vendor", "Procurement Officer", False),
-        ("check_budget", r"check\s+(?:the\s+)?budget", "Check Budget", "Department Head", False),
-        ("finance_approval", r"(?:obtain\s+|get\s+)?finance\s+approval", "Finance Approval", "Finance Manager", True),
-        ("manager_review", r"manager\s+review|review\s+by\s+manager", "Manager Review", "Manager", False),
-        ("get_approval", r"get\s+approval|obtain\s+approval", "Get Approval", "Manager", True),
-        ("create_ticket", r"create\s+(?:the\s+)?(?:procurement\s+)?ticket", "Create Procurement Ticket", "Procurement Officer", False),
-        ("process_order", r"process\s+(?:the\s+)?order", "Process Order", "Procurement Officer", False),
+        ("verify_vendor", r"verify\s+(?:the\s+)?vendor|vendor\s+verification", "Verify Vendor", "Procurement Officer", False),
+        ("check_budget", r"(?:check|verification)\s+(?:the\s+)?budget|budget\s+verification|budget\s+to\s+be\s+checked", "Check Budget", "Department Head", False),
+        ("finance_approval", r"(?:obtain\s+|get\s+)?finance\s+approval|approve\s+(?:the\s+)?finance\s+request", "Finance Approval", "Finance Manager", True),
+        ("manager_approval", r"manager\s+(?:review|approval|for\s+quick\s+approval)|quick\s+approval|expensive\s+purchases?", "Quick Approval", "Manager", True),
+        ("create_procurement_ticket", r"create\s+(?:the\s+)?(?:procurement\s+)?ticket", "Create Procurement Ticket", "Procurement Officer", False),
+        ("process_order", r"process\s+(?:the\s+)?order", "Process Order", "Unspecified", False),
         ("request_purchase", r"request\s+(?:a\s+)?purchase", "Request Purchase", "Department Head", False),
         ("cfo_approval", r"cfo\s+approval|approve\s+by\s+cfo", "CFO Approval", "CFO", True),
     ]
@@ -313,24 +284,27 @@ def _keyword_parse(policy_text: str) -> ParsedPolicy:
     if not extracted_threshold and "expensive" in text_lower:
         extracted_threshold = "expensive"
 
-    # Extract role from entire text if explicit
-    explicit_role = None
-    for r_key, r_name in role_map:
-        if r_key in text_lower:
-            explicit_role = r_name
-            break
-
     found_steps = []
+
     # Identify actions matching patterns
     for step_id, pattern, action_name, default_role, is_approval in action_patterns:
+        # Skip finance_approval if explicitly negated
+        if step_id == "finance_approval" and has_no_finance_approval:
+            continue
+
         match = re.search(pattern, text_lower)
         if match:
             pos = match.start()
-            # Assign role: if explicit role found for ambiguous action, use it
             assigned_role = default_role
-            if "manager" in text_lower and "expensive" in text_lower and step_id in ("manager_review", "get_approval"):
+
+            # Specific role assignment overrides based on sentence context
+            if "expensive" in text_lower and step_id == "manager_approval":
                 assigned_role = "Manager"
-            elif explicit_role and "procurement officer should" in text_lower:
+            elif "procurement officer" in text_lower and step_id == "finance_approval" and (
+                "procurement officer approve" in text_lower or
+                "procurement officer should" in text_lower or
+                "let the procurement officer" in text_lower
+            ):
                 assigned_role = "Procurement Officer"
 
             found_steps.append((pos, step_id, action_name, assigned_role, is_approval))
@@ -338,23 +312,27 @@ def _keyword_parse(policy_text: str) -> ParsedPolicy:
     # Sort steps by order of appearance in policy text
     found_steps.sort(key=lambda x: x[0])
 
-    steps = []
-    step_ids = []
-
     # Check for circular dependency patterns (e.g. Scenario 4 text)
-    is_circular = "re-check" in text_lower or "budget check after finance approval" in text_lower or ("budget fails get finance approval" in text_lower and "requires budget" in text_lower)
+    is_circular = "re-check" in text_lower or "budget check after finance approval" in text_lower or (
+        "budget" in text_lower and "finance approval" in text_lower and "requires" in text_lower and "again" in text_lower
+    )
 
+    steps = []
     for i, (pos, step_id, action_name, role, is_approval) in enumerate(found_steps):
-        step_ids.append(step_id)
         deps = []
 
-        if is_circular and step_id == "check_budget":
-            deps = ["finance_approval"]
+        if is_circular:
+            if step_id == "check_budget":
+                deps = ["finance_approval"]
+            elif step_id == "finance_approval":
+                deps = ["check_budget"]
+            elif i > 0:
+                deps = [found_steps[i - 1][1]]
         elif i > 0:
             deps = [found_steps[i - 1][1]]
 
         t_val = None
-        if step_id in ("check_budget", "get_approval", "finance_approval") and extracted_threshold:
+        if extracted_threshold and (step_id in ("check_budget", "manager_approval", "create_procurement_ticket") or extracted_threshold == "expensive"):
             t_val = extracted_threshold
 
         steps.append(WorkflowStep(
@@ -368,7 +346,7 @@ def _keyword_parse(policy_text: str) -> ParsedPolicy:
         ))
 
     if not steps:
-        # Generic fallback for completely unrecognized sentences
+        # Generic fallback for unrecognized sentences
         steps = [
             WorkflowStep(
                 id="parse_policy_step",
@@ -382,7 +360,7 @@ def _keyword_parse(policy_text: str) -> ParsedPolicy:
         ]
 
     return ParsedPolicy(
-        workflow_name="Parsed Policy Workflow",
+        workflow_name="Custom Policy Workflow",
         steps=steps,
         raw_text=policy_text,
     )
@@ -411,7 +389,7 @@ async def parse_policy(policy_text: str, scenario: Optional[str] = None) -> Pars
             logger.info(f"Matched preset scenario by text: {key}")
             return data["parsed"]
 
-    # Try Gemini API first
+    # Try Gemini API first if configured
     result = await parse_with_gemini(policy_text)
     if result:
         logger.info("Successfully parsed with Gemini API")

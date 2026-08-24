@@ -52,12 +52,12 @@ def verify_graph(ir: WorkflowIR) -> list[Violation]:
             for nid in cycle:
                 data = G.nodes.get(nid, {})
                 node_labels.append(data.get("label", nid))
-            label_str = " → ".join(node_labels) + " → " + node_labels[0]
+            label_str = " -> ".join(node_labels) + " -> " + node_labels[0]
 
             violations.append(Violation(
                 check_type="graph",
-                severity="error",
-                problem=f"Circular dependency detected: {label_str}",
+                severity="critical",
+                problem=f"Circular dependency detected: {' -> '.join(cycle)} -> {cycle[0]}.",
                 cause=(
                     f"Steps {label_str} form a cycle where each step depends on the other. "
                     f"This creates an infinite loop — no step in the cycle can ever start."
@@ -89,7 +89,7 @@ def verify_graph(ir: WorkflowIR) -> list[Violation]:
             label = node_data.get("label", node_id)
             violations.append(Violation(
                 check_type="graph",
-                severity="error",
+                severity="high",
                 problem=f"Unreachable step: '{label}' cannot be reached from the start of the workflow.",
                 cause=(
                     f"There is no path from START to '{label}'. This step will never execute."
@@ -113,7 +113,7 @@ def verify_graph(ir: WorkflowIR) -> list[Violation]:
             label = node_data.get("label", node_id)
             violations.append(Violation(
                 check_type="graph",
-                severity="warning",
+                severity="medium",
                 problem=f"Dead-end step: '{label}' has no outgoing transitions.",
                 cause=(
                     f"The step '{label}' does not lead to any subsequent step or END node. "
@@ -135,7 +135,7 @@ def verify_graph(ir: WorkflowIR) -> list[Violation]:
         except nx.NetworkXUnfeasible:
             violations.append(Violation(
                 check_type="graph",
-                severity="error",
+                severity="critical",
                 problem="Workflow graph has no valid execution order.",
                 cause="The graph contains cycles that prevent determining a valid topological ordering.",
                 suggested_fix="Remove circular dependencies to establish a clear execution sequence.",
@@ -151,7 +151,7 @@ def verify_graph(ir: WorkflowIR) -> list[Violation]:
             if dep_id not in step_ids:
                 violations.append(Violation(
                     check_type="graph",
-                    severity="error",
+                    severity="critical",
                     problem=f"Step '{step.action}' depends on unknown step '{dep_id}'.",
                     cause=f"The dependency '{dep_id}' does not match any defined step ID.",
                     suggested_fix=f"Check the dependency list for '{step.action}'. Valid step IDs: {', '.join(sorted(step_ids))}.",
@@ -168,7 +168,7 @@ def verify_graph(ir: WorkflowIR) -> list[Violation]:
                 if not nx.has_path(G, "START", "END"):
                     violations.append(Violation(
                         check_type="graph",
-                        severity="error",
+                        severity="high",
                         problem="The END node is not reachable from START.",
                         cause="There is no complete path through the workflow from beginning to end.",
                         suggested_fix="Ensure all workflow branches eventually connect to the END node.",
