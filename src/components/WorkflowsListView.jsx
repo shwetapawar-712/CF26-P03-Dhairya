@@ -14,11 +14,12 @@ const STATUS_CONFIG = {
   blocked: { icon: <XCircle className="w-3 h-3" />, label: 'GATE BLOCKED', className: 'text-orange-400 bg-orange-950/60 border-orange-700/40' },
 };
 
-export default function WorkflowsListView({ onClose, pipelineResult, onLoadWorkflow }) {
+export default function WorkflowsListView({ onClose, pipelineResult, onLoadWorkflow, currentUser }) {
   const [workflows, setWorkflows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const isManager = currentUser?.app_role === 'manager';
 
   useEffect(() => {
     fetchWorkflows();
@@ -215,18 +216,20 @@ export default function WorkflowsListView({ onClose, pipelineResult, onLoadWorkf
                               Load
                             </button>
                           )}
-                          <button
-                            onClick={() => handleDelete(wf.workflow_id, wf.name)}
-                            disabled={deletingId === wf.workflow_id}
-                            className="flex items-center gap-1 text-[10px] text-rose-400 hover:text-rose-300 font-semibold transition-colors disabled:opacity-50 ml-auto cursor-pointer"
-                          >
-                            {deletingId === wf.workflow_id ? (
-                              <RefreshCw className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-3 h-3" />
-                            )}
-                            Delete
-                          </button>
+                          {isManager && (
+                            <button
+                              onClick={() => handleDelete(wf.workflow_id, wf.name)}
+                              disabled={deletingId === wf.workflow_id}
+                              className="flex items-center gap-1 text-[10px] text-rose-400 hover:text-rose-300 font-semibold transition-colors disabled:opacity-50 ml-auto cursor-pointer"
+                            >
+                              {deletingId === wf.workflow_id ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3 h-3" />
+                              )}
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

@@ -36,13 +36,17 @@ class UserResponse(BaseModel):
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
 
+from sqlalchemy import select, func
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
     data: LoginRequest,
     db: AsyncSession = Depends(get_session),
 ):
     """Authenticate user credentials and return a JWT access token."""
-    result = await db.execute(select(User).where(User.username == data.username))
+    clean_username = (data.username or "").strip().lower()
+    result = await db.execute(select(User).where(func.lower(User.username) == clean_username))
     user = result.scalar_one_or_none()
 
     if not user or not user.password_hash:

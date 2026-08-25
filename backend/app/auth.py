@@ -117,12 +117,15 @@ DEFAULT_USERS = [
 ]
 
 
+from sqlalchemy import select, func
+
+
 async def seed_default_users():
-    """Create default Employee and Manager accounts if they don't already exist."""
+    """Create or synchronize default Employee and Manager demo accounts."""
     async with async_session() as session:
         for user_data in DEFAULT_USERS:
             result = await session.execute(
-                select(User).where(User.username == user_data["username"])
+                select(User).where(func.lower(User.username) == user_data["username"].lower())
             )
             existing = result.scalar_one_or_none()
             if existing is None:
@@ -136,18 +139,20 @@ async def seed_default_users():
                 session.add(new_user)
                 logger.info(f"Seeded default user: {user_data['username']} ({user_data['app_role']})")
             else:
-                # Update existing user with missing fields if needed
+                # Always synchronize and ensure valid password hash for demo accounts
                 changed = False
-                if not existing.password_hash:
+                if not existing.password_hash or not verify_password(user_data["password"], existing.password_hash):
                     existing.password_hash = get_password_hash(user_data["password"])
                     changed = True
-                if not existing.app_role or existing.app_role == "user":
+                    logger.info(f"Synchronized password hash for demo user: {user_data['username']}")
+                if existing.app_role != user_data["app_role"]:
                     existing.app_role = user_data["app_role"]
                     changed = True
                 if not existing.display_name:
                     existing.display_name = user_data["display_name"]
                     changed = True
                 if changed:
-                    logger.info(f"Updated existing user: {user_data['username']}")
+                    session.add(existing)
+                    logger.info(f"Updated existing demo user: {user_data['username']}")
         await session.commit()
     logger.info("Default user seeding complete.")

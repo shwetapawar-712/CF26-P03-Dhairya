@@ -152,17 +152,12 @@ async def list_approval_requests(
 ):
     """
     List approval requests.
-    - Manager: sees all pending requests assigned to them.
+    - Manager: sees all workflow approval requests (pending first, then history).
     - Employee: sees their own submitted requests.
     """
     if current_user.app_role == "manager":
         result = await db.execute(
-            select(ApprovalRequest)
-            .where(
-                ApprovalRequest.manager_id == current_user.id,
-                ApprovalRequest.status == "pending",
-            )
-            .order_by(desc(ApprovalRequest.created_at))
+            select(ApprovalRequest).order_by(desc(ApprovalRequest.created_at))
         )
     else:
         result = await db.execute(
@@ -199,10 +194,8 @@ async def get_approval_request(
     if not req:
         raise HTTPException(status_code=404, detail="Approval request not found.")
 
-    # Access control: employee can only see their own, manager can see any assigned to them
+    # Access control: employee can only see their own, manager can see any request
     if current_user.app_role == "employee" and req.employee_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied.")
-    if current_user.app_role == "manager" and req.manager_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied.")
 
     # Fetch the associated workflow data
@@ -243,11 +236,9 @@ async def approve_request(
     Manager approves a pending workflow request.
     Server-side checks:
     1. User is authenticated
-    2. User has app_role = manager  (enforced by require_manager dependency)
+    2. User has app_role = manager (enforced by require_manager dependency)
     3. Approval request exists
     4. Request is still PENDING
-    5. Request is assigned to this manager
-    6. The associated workflow verification passed
     """
     result = await db.execute(
         select(ApprovalRequest).where(ApprovalRequest.id == request_id)
@@ -256,14 +247,14 @@ async def approve_request(
     if not req:
         raise HTTPException(status_code=404, detail="Approval request not found.")
 
-    if req.manager_id != current_user.id:
-        raise HTTPException(status_code=403, detail="This request is not assigned to you.")
-
     if req.status != "pending":
         raise HTTPException(
             status_code=400,
             detail=f"Request cannot be approved — current status: {req.status}."
         )
+
+    # Assign approving manager
+    req.manager_id = current_user.id
 
     # Verify the workflow is in a waiting state
     wf_result = await db.execute(
@@ -335,8 +326,8 @@ async def reject_request(
     if not req:
         raise HTTPException(status_code=404, detail="Approval request not found.")
 
-    if req.manager_id != current_user.id:
-        raise HTTPException(status_code=403, detail="This request is not assigned to you.")
+    # Assign rejecting manager
+    req.manager_id = current_user.id
 
     if req.status != "pending":
         raise HTTPException(

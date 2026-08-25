@@ -54,10 +54,11 @@ export const runWhatIf = async (workflowIr, scenarioId) => {
   return response.data;
 };
 
-export const createExecution = async (workflowIr, verificationId = null) => {
+export const createExecution = async (workflowIr, verificationId = null, workflowId = null) => {
   const response = await api.post('/execute/create', {
     workflow_ir: workflowIr,
     verification_id: verificationId,
+    workflow_id: workflowId,
   });
   return response.data;
 };

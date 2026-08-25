@@ -37,7 +37,7 @@ const EMPTY_FORM = {
   severity: 'high',
 };
 
-export default function ComplianceRuleLibrary({ onClose }) {
+export default function ComplianceRuleLibrary({ onClose, currentUser }) {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -45,6 +45,7 @@ export default function ComplianceRuleLibrary({ onClose }) {
   const [formErrors, setFormErrors] = useState({});
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const isManager = currentUser?.app_role === 'manager';
 
   useEffect(() => {
     fetchRules();
@@ -180,113 +181,122 @@ export default function ComplianceRuleLibrary({ onClose }) {
         {/* Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
-          {/* ── Add Rule Form ── */}
-          <div className="vf-bg-gutter border vf-border rounded-lg p-4 space-y-3">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 block">+ Add New Rule</span>
-
-            {/* Row 1: Name */}
-            <div>
-              <label className="text-[10px] vf-text-secondary font-semibold uppercase block mb-1">Rule Name *</label>
-              <input
-                type="text"
-                placeholder="e.g. Finance Approval Threshold"
-                value={form.name}
-                onChange={e => updateForm('name', e.target.value)}
-                className={`w-full vf-bg-card border rounded px-3 py-1.5 text-xs vf-text-primary focus:outline-none focus:border-indigo-500 ${formErrors.name ? 'border-rose-500' : 'vf-border'}`}
-              />
-              {formErrors.name && <p className="text-rose-400 text-[10px] mt-0.5">{formErrors.name}</p>}
-            </div>
-
-            {/* Row 2: Rule Type + Severity */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] vf-text-secondary font-semibold uppercase block mb-1">Rule Type *</label>
-                <select
-                  value={form.rule_type}
-                  onChange={e => updateForm('rule_type', e.target.value)}
-                  className="w-full vf-bg-card border vf-border rounded px-3 py-1.5 text-xs vf-text-primary focus:outline-none focus:border-indigo-500"
-                >
-                  {RULE_TYPES.map(t => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-                <p className="text-[10px] vf-text-tertiary mt-0.5">{currentTypeDef.description}</p>
-              </div>
-              <div>
-                <label className="text-[10px] vf-text-secondary font-semibold uppercase block mb-1">Severity</label>
-                <select
-                  value={form.severity}
-                  onChange={e => updateForm('severity', e.target.value)}
-                  className="w-full vf-bg-card border vf-border rounded px-3 py-1.5 text-xs vf-text-primary focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="warning">Warning</option>
-                  <option value="critical">Critical</option>
-                </select>
+          {/* ── Add Rule Form (Manager only) ── */}
+          {!isManager ? (
+            <div className="vf-bg-gutter border vf-border rounded-lg p-3 flex items-center gap-2.5 text-amber-300 bg-amber-950/20 border-amber-800/40">
+              <Shield className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <div className="text-[11px]">
+                <span className="font-bold">Manager Role Required:</span> Compliance rules can only be created, modified, or deleted by a Manager. As an Employee, you have read-only access.
               </div>
             </div>
+          ) : (
+            <div className="vf-bg-gutter border vf-border rounded-lg p-4 space-y-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 block">+ Add New Rule (Manager)</span>
 
-            {/* Row 3: Threshold (conditional on type) */}
-            {currentTypeDef.showThreshold && (
+              {/* Row 1: Name */}
               <div>
-                <label className="text-[10px] vf-text-secondary font-semibold uppercase block mb-1">Threshold Value ($) *</label>
+                <label className="text-[10px] vf-text-secondary font-semibold uppercase block mb-1">Rule Name *</label>
                 <input
-                  type="number"
-                  placeholder="e.g. 10000"
-                  value={form.threshold}
-                  onChange={e => updateForm('threshold', e.target.value)}
-                  min="0"
-                  className={`w-full bg-[#111827] border rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 ${formErrors.threshold ? 'border-rose-500' : 'border-slate-700'}`}
+                  type="text"
+                  placeholder="e.g. Finance Approval Threshold"
+                  value={form.name}
+                  onChange={e => updateForm('name', e.target.value)}
+                  className={`w-full vf-bg-card border rounded px-3 py-1.5 text-xs vf-text-primary focus:outline-none focus:border-indigo-500 ${formErrors.name ? 'border-rose-500' : 'vf-border'}`}
                 />
-                {formErrors.threshold && <p className="text-rose-400 text-[10px] mt-0.5">{formErrors.threshold}</p>}
+                {formErrors.name && <p className="text-rose-400 text-[10px] mt-0.5">{formErrors.name}</p>}
               </div>
-            )}
 
-            {/* Row 4: Description / Condition */}
-            <div>
-              <label className="text-[10px] text-slate-400 font-semibold uppercase block mb-1">
-                {form.rule_type === 'threshold' ? 'Description' : 'Description / Condition'} *
-              </label>
-              <input
-                type="text"
-                placeholder={
-                  form.rule_type === 'threshold' ? 'e.g. Finance approval required above limit' :
-                  form.rule_type === 'requirement' ? 'e.g. Vendor must be verified before purchase' :
-                  form.rule_type === 'approval' ? 'e.g. CFO approval is mandatory for all acquisitions' :
-                  form.rule_type === 'role' ? 'e.g. Manager approval required for cross-team operations' :
-                  'e.g. Two department approvals required for cross-department operations'
-                }
-                value={form.description}
-                onChange={e => updateForm('description', e.target.value)}
-                className={`w-full bg-[#111827] border rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 ${formErrors.description ? 'border-rose-500' : 'border-slate-700'}`}
-              />
-              {formErrors.description && <p className="text-rose-400 text-[10px] mt-0.5">{formErrors.description}</p>}
-            </div>
+              {/* Row 2: Rule Type + Severity */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] vf-text-secondary font-semibold uppercase block mb-1">Rule Type *</label>
+                  <select
+                    value={form.rule_type}
+                    onChange={e => updateForm('rule_type', e.target.value)}
+                    className="w-full vf-bg-card border vf-border rounded px-3 py-1.5 text-xs vf-text-primary focus:outline-none focus:border-indigo-500"
+                  >
+                    {RULE_TYPES.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] vf-text-tertiary mt-0.5">{currentTypeDef.description}</p>
+                </div>
+                <div>
+                  <label className="text-[10px] vf-text-secondary font-semibold uppercase block mb-1">Severity</label>
+                  <select
+                    value={form.severity}
+                    onChange={e => updateForm('severity', e.target.value)}
+                    className="w-full vf-bg-card border vf-border rounded px-3 py-1.5 text-xs vf-text-primary focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="warning">Warning</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+              </div>
 
-            {/* Row 5: Required Action (optional helper) */}
-            <div>
-              <label className="text-[10px] text-slate-400 font-semibold uppercase block mb-1">Required Workflow Action <span className="text-slate-600">(optional)</span></label>
-              <input
-                type="text"
-                placeholder="e.g. finance_approval, verify_vendor, cfo_approval"
-                value={form.required_action}
-                onChange={e => updateForm('required_action', e.target.value)}
-                className="w-full vf-bg-card border vf-border rounded px-3 py-1.5 text-xs vf-text-primary focus:outline-none focus:border-indigo-500"
-              />
-              <p className="text-[10px] vf-text-tertiary mt-0.5">Step ID that must exist in the workflow for this rule to pass.</p>
-            </div>
-
-            <button
-              onClick={handleCreate}
-              disabled={submitting}
-              className="btn btn-primary text-xs w-full py-2 disabled:opacity-50 cursor-pointer"
-            >
-              {submitting ? (
-                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Creating...</>
-              ) : (
-                <><Plus className="w-3.5 h-3.5" /> Add Rule</>
+              {/* Row 3: Threshold (conditional on type) */}
+              {currentTypeDef.showThreshold && (
+                <div>
+                  <label className="text-[10px] vf-text-secondary font-semibold uppercase block mb-1">Threshold Value ($) *</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 10000"
+                    value={form.threshold}
+                    onChange={e => updateForm('threshold', e.target.value)}
+                    min="0"
+                    className={`w-full bg-[#111827] border rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 ${formErrors.threshold ? 'border-rose-500' : 'border-slate-700'}`}
+                  />
+                  {formErrors.threshold && <p className="text-rose-400 text-[10px] mt-0.5">{formErrors.threshold}</p>}
+                </div>
               )}
-            </button>
-          </div>
+
+              {/* Row 4: Description / Condition */}
+              <div>
+                <label className="text-[10px] text-slate-400 font-semibold uppercase block mb-1">
+                  {form.rule_type === 'threshold' ? 'Description' : 'Description / Condition'} *
+                </label>
+                <input
+                  type="text"
+                  placeholder={
+                    form.rule_type === 'threshold' ? 'e.g. Finance approval required above limit' :
+                    form.rule_type === 'requirement' ? 'e.g. Vendor must be verified before purchase' :
+                    form.rule_type === 'approval' ? 'e.g. CFO approval is mandatory for all acquisitions' :
+                    form.rule_type === 'role' ? 'e.g. Manager approval required for cross-team operations' :
+                    'e.g. Two department approvals required for cross-department operations'
+                  }
+                  value={form.description}
+                  onChange={e => updateForm('description', e.target.value)}
+                  className={`w-full bg-[#111827] border rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 ${formErrors.description ? 'border-rose-500' : 'border-slate-700'}`}
+                />
+                {formErrors.description && <p className="text-rose-400 text-[10px] mt-0.5">{formErrors.description}</p>}
+              </div>
+
+              {/* Row 5: Required Action (optional helper) */}
+              <div>
+                <label className="text-[10px] text-slate-400 font-semibold uppercase block mb-1">Required Workflow Action <span className="text-slate-600">(optional)</span></label>
+                <input
+                  type="text"
+                  placeholder="e.g. finance_approval, verify_vendor, cfo_approval"
+                  value={form.required_action}
+                  onChange={e => updateForm('required_action', e.target.value)}
+                  className="w-full vf-bg-card border vf-border rounded px-3 py-1.5 text-xs vf-text-primary focus:outline-none focus:border-indigo-500"
+                />
+                <p className="text-[10px] vf-text-tertiary mt-0.5">Step ID that must exist in the workflow for this rule to pass.</p>
+              </div>
+
+              <button
+                onClick={handleCreate}
+                disabled={submitting}
+                className="btn btn-primary text-xs w-full py-2 disabled:opacity-50 cursor-pointer"
+              >
+                {submitting ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Creating...</>
+                ) : (
+                  <><Plus className="w-3.5 h-3.5" /> Add Rule</>
+                )}
+              </button>
+            </div>
+          )}
 
           {/* ── Existing Rules List ── */}
           <div className="space-y-2">
@@ -335,22 +345,30 @@ export default function ComplianceRuleLibrary({ onClose }) {
                       )}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      {/* Enable/Disable Toggle */}
-                      <button
-                        onClick={() => handleToggle(r.id, r.name, r.active)}
-                        className={`p-1.5 rounded transition-colors text-[10px] cursor-pointer ${r.active ? 'text-emerald-400 hover:text-emerald-200' : 'vf-text-tertiary hover:vf-text-primary'}`}
-                        title={r.active ? 'Disable rule' : 'Enable rule'}
-                      >
-                        {r.active ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                      </button>
-                      {/* Delete */}
-                      <button
-                        onClick={() => handleDelete(r.id, r.name)}
-                        className="text-rose-400 hover:text-rose-300 p-1.5 rounded transition-colors cursor-pointer"
-                        title="Delete rule"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {isManager ? (
+                        <>
+                          {/* Enable/Disable Toggle */}
+                          <button
+                            onClick={() => handleToggle(r.id, r.name, r.active)}
+                            className={`p-1.5 rounded transition-colors text-[10px] cursor-pointer ${r.active ? 'text-emerald-400 hover:text-emerald-200' : 'vf-text-tertiary hover:vf-text-primary'}`}
+                            title={r.active ? 'Disable rule' : 'Enable rule'}
+                          >
+                            {r.active ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                          </button>
+                          {/* Delete */}
+                          <button
+                            onClick={() => handleDelete(r.id, r.name)}
+                            className="text-rose-400 hover:text-rose-300 p-1.5 rounded transition-colors cursor-pointer"
+                            title="Delete rule"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-[10px] font-mono vf-text-tertiary px-1.5 py-0.5 rounded bg-slate-800/40">
+                          {r.active ? 'Active' : 'Inactive'}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );

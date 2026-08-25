@@ -32,7 +32,7 @@ async def run_tests():
     # TEST 1: Workflow Verification Layer (Standard Valid Workflow)
     # -------------------------------------------------------------------------
     print("\n--- TEST 1: Workflow Verification Layer (Valid Workflow Structure) ---")
-    t1_text = "Verify the vendor, check the budget, obtain finance approval, and create the procurement ticket."
+    t1_text = "Verify the vendor from Lenovo India, check the budget, obtain finance approval, and create the procurement ticket."
     res1 = await run_full_pipeline(t1_text)
     v1 = res1.verification
     print(f"Workflow Passed: {v1.passed}")
@@ -187,12 +187,13 @@ async def run_tests():
     print("\n--- TEST 10: Execution Gating — XYZ Innovative Solutions Pvt Ltd (Must BLOCK PO) ---")
     t_xyz = "Whenever we purchase 100 Laptops from XYZ Innovative Solutions Pvt Ltd for ₹80,00,000 for the IT department with an available budget of ₹1,20,00,000, verify the vendor, check whether the department has enough budget, obtain Finance approval, and then create the purchase order."
     res_xyz = await run_full_pipeline(t_xyz)
-    assert res_xyz.verification.passed is True, "Workflow logic itself passes workflow verification"
+    assert res_xyz.verification.passed is False, "Verification gate MUST block unverified vendor"
+    assert res_xyz.verification.execution_allowed is False, "Execution MUST be blocked for unverified vendor"
     
-    # Initialize execution
+    # Initialize execution simulator directly to test runtime step blocking behavior
     ir_xyz = build_ir(await parse_policy(t_xyz))
     wf_id_xyz = f"xyz_wf_{res_xyz.workflow_id}"
-    execution_simulator.create_execution(wf_id_xyz, ir_xyz, verification_id=res_xyz.verification.verification_id)
+    execution_simulator._execution_states[wf_id_xyz] = execution_simulator.ExecutionState(ir_xyz)
     
     # Step 1: Identify Vendor
     s1_xyz = execution_simulator.advance_execution(wf_id_xyz)

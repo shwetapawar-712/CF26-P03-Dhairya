@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import {
-  ClipboardCheck, Clock, User, ExternalLink, CheckCircle2, XCircle, Play
+  ClipboardCheck, Clock, User, ExternalLink, CheckCircle2, XCircle, Play,
+  ThumbsUp, ThumbsDown, RefreshCw
 } from "lucide-react";
 
 /**
@@ -10,12 +11,26 @@ import {
  * For Employee: shows their submitted workflows with real-time status (Pending, Approved, Rejected, Completed).
  *
  * Props:
- *   requests        - array of ApprovalRequest objects
- *   onOpenRequest   - callback(request) when user clicks "Open Request" / "Open Workflow"
- *   activeRequestId - id of the currently-open request (highlights it)
- *   isManager       - boolean indicating whether the viewer is a Manager
+ *   requests           - array of ApprovalRequest objects
+ *   onOpenRequest      - callback(request) when user clicks "Open Request" / "Open Workflow"
+ *   activeRequestId    - id of the currently-open request (highlights it)
+ *   isManager          - boolean indicating whether the viewer is a Manager
+ *   onApproveRequest   - callback(request) to approve
+ *   onRejectRequest    - callback(request, reason) to reject
+ *   isApprovingRequest - boolean
  */
-export default function PendingRequestCard({ requests, onOpenRequest, activeRequestId, isManager = false }) {
+export default function PendingRequestCard({
+  requests,
+  onOpenRequest,
+  activeRequestId,
+  isManager = false,
+  onApproveRequest,
+  onRejectRequest,
+  isApprovingRequest = false,
+}) {
+  const [rejectingId, setRejectingId] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
+
   if (!requests || requests.length === 0) return null;
 
   const extractVendor = (policyText) => {
@@ -71,12 +86,20 @@ export default function PendingRequestCard({ requests, onOpenRequest, activeRequ
     );
   };
 
+  const handleConfirmReject = async (req) => {
+    if (onRejectRequest) {
+      await onRejectRequest(req, rejectReason);
+      setRejectingId(null);
+      setRejectReason("");
+    }
+  };
+
   return (
-    <div className="border-t vf-border pt-3 space-y-2">
+    <div className="space-y-2">
       <div className="flex items-center gap-2 px-1">
         <ClipboardCheck className={`w-3.5 h-3.5 ${isManager ? "text-amber-400" : "text-indigo-400"}`} />
         <span className={`text-[10px] font-bold uppercase tracking-wider ${isManager ? "text-amber-400" : "text-indigo-400"}`}>
-          {isManager ? "Pending Approval" : "My Submitted Workflows"}
+          {isManager ? "Workflow Approvals" : "My Submitted Workflows"}
         </span>
         <span className={`ml-auto px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
           isManager
@@ -91,13 +114,15 @@ export default function PendingRequestCard({ requests, onOpenRequest, activeRequ
         const isActive = activeRequestId === req.id;
         const vendor = extractVendor(req.policy_text);
         const amount = extractAmount(req.policy_text);
+        const isPending = req.status === "pending";
+        const isRejecting = rejectingId === req.id;
 
         return (
           <div
             key={req.id}
             className={`vf-card rounded-lg border overflow-hidden transition-all ${
               isActive
-                ? "border-indigo-500/60 bg-indigo-950/20"
+                ? "border-indigo-500/60 bg-indigo-950/20 shadow-md"
                 : "vf-border vf-bg-card-alt"
             }`}
           >
@@ -138,19 +163,80 @@ export default function PendingRequestCard({ requests, onOpenRequest, activeRequ
                 </div>
               )}
 
-              {/* Open Request Action */}
-              <button
-                id={`vf-open-request-${req.id}`}
-                onClick={() => onOpenRequest && onOpenRequest(req)}
-                className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
-                  isActive
-                    ? "bg-indigo-700/60 border border-indigo-500/60 text-indigo-200"
-                    : "bg-indigo-900/40 border border-indigo-700/40 text-indigo-300 hover:bg-indigo-800/50"
-                }`}
-              >
-                <ExternalLink className="w-3 h-3" />
-                {isActive ? (isManager ? "Currently Reviewing" : "Currently Active") : (isManager ? "Open Request" : "Open Workflow")}
-              </button>
+              {/* Rejection reason inline input for manager */}
+              {isManager && isPending && isRejecting && (
+                <div className="p-2 rounded bg-rose-950/20 border border-rose-800/40 space-y-1.5">
+                  <input
+                    type="text"
+                    placeholder="Reason for rejection (optional)..."
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    className="w-full px-2 py-1 text-[10px] rounded border vf-border vf-bg-editor vf-text-primary focus:outline-none focus:border-rose-500"
+                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleConfirmReject(req)}
+                      disabled={isApprovingRequest}
+                      className="flex-1 py-1 rounded text-[10px] font-bold bg-rose-700 hover:bg-rose-600 text-white cursor-pointer disabled:opacity-50"
+                    >
+                      Confirm Reject
+                    </button>
+                    <button
+                      onClick={() => { setRejectingId(null); setRejectReason(""); }}
+                      className="px-2 py-1 rounded text-[10px] vf-text-tertiary hover:vf-text-primary cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions row */}
+              <div className="flex items-center gap-1 pt-1">
+                {/* Open / Review */}
+                <button
+                  id={`vf-open-request-${req.id}`}
+                  onClick={() => onOpenRequest && onOpenRequest(req)}
+                  className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
+                    isActive
+                      ? "bg-indigo-700/60 border border-indigo-500/60 text-indigo-200"
+                      : "bg-indigo-900/40 border border-indigo-700/40 text-indigo-300 hover:bg-indigo-800/50"
+                  }`}
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  {isActive ? (isManager ? "Reviewing" : "Active") : (isManager ? "Review in Inspector" : "Open Workflow")}
+                </button>
+
+                {/* Direct quick action buttons for manager on pending requests */}
+                {isManager && isPending && !isRejecting && (
+                  <>
+                    <button
+                      id={`vf-card-approve-${req.id}`}
+                      onClick={() => onApproveRequest && onApproveRequest(req)}
+                      disabled={isApprovingRequest}
+                      className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded text-[10px] font-bold bg-emerald-900/60 border border-emerald-700/50 text-emerald-300 hover:bg-emerald-800/80 transition-colors cursor-pointer disabled:opacity-50"
+                      title="Approve and allow execution"
+                    >
+                      {isApprovingRequest ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <ThumbsUp className="w-3 h-3" />
+                      )}
+                      Approve
+                    </button>
+                    <button
+                      id={`vf-card-reject-${req.id}`}
+                      onClick={() => setRejectingId(req.id)}
+                      disabled={isApprovingRequest}
+                      className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded text-[10px] font-bold bg-rose-950/60 border border-rose-800/50 text-rose-300 hover:bg-rose-900/80 transition-colors cursor-pointer disabled:opacity-50"
+                      title="Reject request"
+                    >
+                      <ThumbsDown className="w-3 h-3" />
+                      Reject
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         );

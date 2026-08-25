@@ -17,6 +17,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("nlc_backend")
+# Trigger reload: auth & approval routes active
 
 
 @asynccontextmanager

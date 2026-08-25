@@ -2,7 +2,12 @@
 
 from pydantic_settings import BaseSettings
 from typing import List
+from pathlib import Path
 import os
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_DB_FILE = BASE_DIR / "data" / "nlc.db"
+DEFAULT_DB_URL = f"sqlite+aiosqlite:///{DEFAULT_DB_FILE.as_posix()}"
 
 
 class Settings(BaseSettings):
@@ -12,7 +17,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
 
     # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/nlc.db"
+    DATABASE_URL: str = DEFAULT_DB_URL
 
     # CORS
     CORS_ORIGINS: List[str] = [

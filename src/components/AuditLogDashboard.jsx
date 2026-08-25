@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { History, X, RefreshCw, CheckCircle2, XCircle, Clock, Activity, Shield, Scale, FolderOpen } from 'lucide-react';
+import { History, X, RefreshCw, CheckCircle2, XCircle, Clock, Activity, Shield, Scale, FolderOpen, User, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { getAuditLogs } from '../api/client';
 
 const ACTION_ICONS = {
@@ -13,6 +13,12 @@ const ACTION_ICONS = {
   rule_toggled: <Scale className="w-3.5 h-3.5 text-slate-400" />,
   workflow_saved: <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />,
   workflow_deleted: <FolderOpen className="w-3.5 h-3.5 text-rose-400" />,
+  login: <User className="w-3.5 h-3.5 text-indigo-400" />,
+  login_failed: <Lock className="w-3.5 h-3.5 text-rose-400" />,
+  workflow_submitted_for_approval: <Clock className="w-3.5 h-3.5 text-amber-400" />,
+  manager_opened_request: <Shield className="w-3.5 h-3.5 text-blue-400" />,
+  manager_approved_workflow: <ThumbsUp className="w-3.5 h-3.5 text-emerald-400" />,
+  manager_rejected_workflow: <ThumbsDown className="w-3.5 h-3.5 text-rose-400" />,
 };
 
 const STATUS_COLORS = {
@@ -46,20 +52,22 @@ export default function AuditLogDashboard({ onClose }) {
 
   const ACTION_CATEGORIES = [
     { id: 'all', label: 'All Events' },
+    { id: 'auth', label: 'Auth & Login' },
+    { id: 'approval', label: 'Approvals' },
     { id: 'verify', label: 'Verifications' },
     { id: 'execute', label: 'Executions' },
     { id: 'rule', label: 'Rule Changes' },
     { id: 'workflow', label: 'Workflows' },
-    { id: 'approval', label: 'Approvals' },
   ];
 
   const filterMap = {
     all: () => true,
+    auth: (l) => l.action?.startsWith('login'),
+    approval: (l) => l.action?.includes('approval') || l.action?.includes('manager_'),
     verify: (l) => l.action?.startsWith('verify'),
     execute: (l) => l.action?.startsWith('execute'),
     rule: (l) => l.action?.startsWith('rule'),
     workflow: (l) => l.action?.startsWith('workflow'),
-    approval: (l) => l.action?.startsWith('business'),
   };
 
   const filteredLogs = logs.filter(filterMap[filter] || (() => true));

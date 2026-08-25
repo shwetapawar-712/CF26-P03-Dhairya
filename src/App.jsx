@@ -50,6 +50,7 @@ export default function App() {
 
   // ── Authentication State ──
   const [currentUser, setCurrentUser] = useState(null);
+  const [showLoginPage, setShowLoginPage] = useState(false);
   const [authLoading, setAuthLoading] = useState(true); // restore session on mount
 
   useEffect(() => {
@@ -87,13 +88,13 @@ export default function App() {
   }, []);
 
   // ── Login Page Visibility ──
-  // Only show login when user explicitly clicks Sign In on the landing page.
-  // Do NOT show it automatically on startup or on direct /app URL access.
-  const [showLoginPage, setShowLoginPage] = useState(false);
-
-  const handleShowLogin = useCallback(() => {
-    setShowLoginPage(true);
-  }, []);
+  const handleNavigateToApp = useCallback(() => {
+    if (currentUser) {
+      navigateTo('/app');
+    } else {
+      setShowLoginPage(true);
+    }
+  }, [currentUser, navigateTo]);
 
   const handleHideLogin = useCallback(() => {
     setShowLoginPage(false);
@@ -162,21 +163,26 @@ export default function App() {
     );
   }
 
-  // If user is on /app but NOT authenticated → redirect to landing page
+  // If user is on /app but NOT authenticated → show login page
   if (isDashboardView && !currentUser) {
-    // Push them back to landing silently
-    if (currentPath !== '/' && currentPath !== '') {
-      navigateTo('/');
-    }
+    return (
+      <>
+        {showSplash && <TerminalLoader onComplete={handleSplashComplete} />}
+        <LoginPage
+          onLoginSuccess={handleLoginSuccess}
+          onBack={() => navigateTo('/')}
+        />
+      </>
+    );
   }
 
   // Landing view (or any unauthenticated state):
-  // Animation → Landing → [Sign In clicked] → LoginPage → Dashboard
+  // Animation → Landing → [Get Started / Sign In clicked] → LoginPage → Dashboard
   return (
     <>
       {showSplash && <TerminalLoader onComplete={handleSplashComplete} />}
 
-      {/* Login page overlays the landing page when user clicks Sign In */}
+      {/* Login page overlays the landing page when user clicks Sign In / Get Started */}
       {showLoginPage && !currentUser ? (
         <LoginPage
           onLoginSuccess={handleLoginSuccess}
@@ -184,7 +190,7 @@ export default function App() {
         />
       ) : (
         <LandingPage
-          onNavigateToApp={handleShowLogin}
+          onNavigateToApp={handleNavigateToApp}
           theme={theme}
           onToggleTheme={toggleTheme}
         />
@@ -557,14 +563,17 @@ function Dashboard({ theme, onToggleTheme, onNavigateHome, currentUser, onLogout
     }));
   };
 
-  // Manager clicks Approve in the VerificationInspector footer
+  // Manager clicks Approve in the VerificationInspector footer or PendingRequestCard
   const handleManagerApproveAction = useCallback(async (req) => {
     if (!req) return;
     setIsApprovingRequest(true);
     try {
       const result = await approveRequest(req.id);
-      const irJson = result.request?.ir_json;
-      const verificationId = result.request?.verification_id;
+      const irJson = result.request?.ir_json || req.ir_json;
+      const verificationId = result.request?.verification_id || req.verification_id;
+
+      setApprovalStatus('approved');
+      setApprovalRequestId(req.id);
 
       // Load the approved IR and start execution
       if (irJson && Object.keys(irJson).length > 0) {
@@ -581,37 +590,49 @@ function Dashboard({ theme, onToggleTheme, onNavigateHome, currentUser, onLogout
           },
         }));
 
-        const execResult = await createExecution(irJson, verificationId);
-        setExecutionSession({
-          workflow_id: execResult.workflow_id,
-          state: execResult.state || execResult,
-        });
-        setCenterTab('execution');
-        setGateBanner({ type: 'passed', message: 'Manager Approved — Starting Execution' });
-        setTimeout(() => setGateBanner(null), 4000);
+        try {
+          const execResult = await createExecution(irJson, verificationId, req.workflow_id);
+          setExecutionSession({
+            workflow_id: execResult.workflow_id || req.workflow_id,
+            state: execResult.state || execResult,
+          });
+          setCenterTab('execution');
+        } catch (execErr) {
+          console.warn('Execution auto-start notice:', execErr);
+        }
       }
+
+      setGateBanner({ type: 'passed', message: `Manager Approved: Workflow "${req.workflow_name || req.workflow_id}" is cleared for execution!` });
+      setTimeout(() => setGateBanner(null), 5000);
 
       setActiveManagerRequest(null);
       await refreshPendingRequests();
     } catch (err) {
       console.error('Approval failed:', err);
+      setGateBanner({ type: 'blocked', message: err?.response?.data?.detail || 'Approval failed. Please check server logs.' });
+      setTimeout(() => setGateBanner(null), 5000);
     } finally {
       setIsApprovingRequest(false);
     }
   }, [refreshPendingRequests]);
 
-  // Manager clicks Reject in the VerificationInspector footer
+  // Manager clicks Reject in the VerificationInspector footer or PendingRequestCard
   const handleManagerRejectAction = useCallback(async (req, reason = '') => {
     if (!req) return;
     setIsApprovingRequest(true);
     try {
       await rejectRequest(req.id, reason);
+      setApprovalStatus('rejected');
+      setApprovalRequestId(req.id);
       setActiveManagerRequest(null);
-      setGateBanner({ type: 'blocked', message: 'Request Rejected — Workflow Blocked' });
-      setTimeout(() => setGateBanner(null), 4000);
+      setExecutionSession(null);
+      setGateBanner({ type: 'blocked', message: `Request Rejected: "${req.workflow_name || req.workflow_id}" is blocked.` });
+      setTimeout(() => setGateBanner(null), 5000);
       await refreshPendingRequests();
     } catch (err) {
       console.error('Rejection failed:', err);
+      setGateBanner({ type: 'blocked', message: err?.response?.data?.detail || 'Rejection failed.' });
+      setTimeout(() => setGateBanner(null), 5000);
       throw err; // Let inspector display the error
     } finally {
       setIsApprovingRequest(false);
@@ -898,6 +919,9 @@ function Dashboard({ theme, onToggleTheme, onNavigateHome, currentUser, onLogout
                     onOpenRequest={handleOpenRequest}
                     activeRequestId={activeManagerRequest?.id || approvalRequestId}
                     isManager={isManager}
+                    onApproveRequest={handleManagerApproveAction}
+                    onRejectRequest={handleManagerRejectAction}
+                    isApprovingRequest={isApprovingRequest}
                   />
                 </div>
               )}
@@ -944,11 +968,15 @@ function Dashboard({ theme, onToggleTheme, onNavigateHome, currentUser, onLogout
           onClose={() => setActiveOverlayModal(null)}
           pipelineResult={pipelineResult}
           onLoadWorkflow={handleLoadWorkflow}
+          currentUser={currentUser}
         />
       )}
 
       {activeOverlayModal === 'compliance' && (
-        <ComplianceRuleLibrary onClose={() => setActiveOverlayModal(null)} />
+        <ComplianceRuleLibrary
+          onClose={() => setActiveOverlayModal(null)}
+          currentUser={currentUser}
+        />
       )}
 
       {activeOverlayModal === 'audit' && (

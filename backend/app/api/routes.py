@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from app.database import get_session
+from app.auth import get_current_user, require_manager
 from app.models.database_models import (
     Policy, Workflow, WorkflowVersion, AuditLog, ComplianceRuleModel, User, ApprovalRequest
 )
@@ -118,7 +119,6 @@ async def api_verify_policy(
             status="verified" if verif and verif.passed else "blocked"
         )
         db.add(wf)
-
         ver = WorkflowVersion(
             workflow_id=workflow_id,
             version=1,
@@ -128,19 +128,8 @@ async def api_verify_policy(
         )
         db.add(ver)
 
-        # Initialize execution state machine ONLY if verification passed
-        if verif and verif.execution_allowed:
-            try:
-                ir_obj = WorkflowIR(**result.workflow_ir)
-                execution_simulator.create_execution(
-                    workflow_id,
-                    ir_obj,
-                    verification_id=verif.verification_id
-                )
-            except Exception as e:
-                logger.warning(f"Could not init execution state: {e}")
-        else:
-            # Explicitly invalidate any previous execution states for this workflow
+        if not (verif and verif.execution_allowed):
+            # Invalidate tokens if verification failed
             invalidate_verification_tokens(workflow_id)
 
     await db.commit()
@@ -218,14 +207,15 @@ async def api_create_execution(
     workflow_ir: dict = Body(..., embed=True),
     verification_id: Optional[str] = Body(None, embed=True),
     workflow_id: Optional[str] = Body(None, embed=True),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session)
 ):
     """
     Initialize an execution state for a workflow IR.
     SECURITY GATED:
-    1. Rejects unverified workflows.
-    2. Rejects workflows that are still waiting for manager approval
-       (i.e., no approved ApprovalRequest exists for this workflow).
+    1. Authenticated user required.
+    2. Rejects unverified workflows.
+    3. Rejects workflows that are not approved by a manager when requested by an employee.
     """
     try:
         ir_obj = WorkflowIR(**workflow_ir)
@@ -238,25 +228,35 @@ async def api_create_execution(
                 select(Workflow).where(Workflow.verification_id == verification_id)
             )
             workflow_row = wf_result.scalar_one_or_none()
-            if workflow_row:
-                wf_id = workflow_row.workflow_id
-                if workflow_row.status == "waiting_for_manager":
-                    # Check for an approved request
-                    apr_result = await db.execute(
-                        select(ApprovalRequest).where(
-                            ApprovalRequest.workflow_id == workflow_row.workflow_id,
-                            ApprovalRequest.status == "approved",
-                        )
-                    )
-                    approved_req = apr_result.scalar_one_or_none()
-                    if not approved_req:
-                        raise PermissionError(
-                            "Execution blocked: workflow is awaiting manager approval. "
-                            "A manager must approve this workflow before it can be executed."
-                        )
         elif wf_id:
             wf_result = await db.execute(select(Workflow).where(Workflow.workflow_id == wf_id))
             workflow_row = wf_result.scalar_one_or_none()
+
+        if current_user.app_role == "employee":
+            if workflow_row:
+                wf_id = workflow_row.workflow_id
+                if workflow_row.status == "rejected":
+                    raise PermissionError(
+                        "Execution blocked: workflow was rejected by manager."
+                    )
+                # Check for approved ApprovalRequest
+                apr_result = await db.execute(
+                    select(ApprovalRequest).where(
+                        ApprovalRequest.workflow_id == workflow_row.workflow_id,
+                        ApprovalRequest.status == "approved",
+                    )
+                )
+                approved_req = apr_result.scalar_one_or_none()
+                if not approved_req and workflow_row.status not in ("executing", "completed"):
+                    raise PermissionError(
+                        "Execution blocked: workflow is awaiting manager approval. "
+                        "A manager must approve this workflow before it can be executed."
+                    )
+            else:
+                # Employee cannot execute arbitrary unapproved workflow IR without prior manager approval
+                raise PermissionError(
+                    "Execution blocked: workflow requires manager approval before execution."
+                )
 
         if not wf_id:
             wf_id = f"wf_{uuid.uuid4().hex[:8]}"
@@ -276,11 +276,12 @@ async def api_create_execution(
         audit_entry = AuditLog(
             workflow_id=wf_id,
             verification_id=verification_id or "",
+            user_id=current_user.id,
             action="execute_create",
-            policy_text=ir_obj.raw_policy_text or f"Execution initialized for {ir_obj.workflow_name}",
+            policy_text=ir_obj.raw_policy_text or f"Execution initialized for {ir_obj.workflow_name} by {current_user.username}",
             verification_status="passed",
             errors=[],
-            details={"verification_id": verification_id}
+            details={"verification_id": verification_id, "user": current_user.username, "app_role": current_user.app_role}
         )
         db.add(audit_entry)
         await db.commit()
@@ -295,11 +296,12 @@ async def api_create_execution(
 @router.post("/execute/step")
 async def api_step_execution(
     workflow_id: str = Body(..., embed=True),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session)
 ):
     """
     Advance execution by one step.
-    SECURITY GATED: Rejects execution if workflow is unverified or blocked.
+    SECURITY GATED: Authenticated user required. Rejects execution if workflow is unverified or blocked.
     """
     res = execution_simulator.advance_execution(workflow_id)
     if "error" in res:
@@ -316,11 +318,12 @@ async def api_step_execution(
         # Audit log step progression
         audit_entry = AuditLog(
             workflow_id=workflow_id,
+            user_id=current_user.id,
             action="execute_step",
-            policy_text=f"Execution step forward on {workflow_id}",
+            policy_text=f"Execution step forward on {workflow_id} by {current_user.username}",
             verification_status="passed",
             errors=[],
-            details={"current_step": res.get("current_step"), "is_complete": res.get("is_complete")}
+            details={"current_step": res.get("current_step"), "is_complete": res.get("is_complete"), "user": current_user.username}
         )
         db.add(audit_entry)
         await db.commit()
@@ -335,6 +338,7 @@ async def api_approve_execution_step(
     workflow_id: str = Body(..., embed=True),
     approved: bool = Body(True, embed=True),
     user_role: str = Body("Finance Manager", embed=True),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session)
 ):
     """Approve or reject a waiting business approval step during workflow runtime execution."""
@@ -346,12 +350,12 @@ async def api_approve_execution_step(
     action_type = "business_approval_approved" if approved else "business_approval_rejected"
     audit_entry = AuditLog(
         workflow_id=workflow_id,
-        user_id=1,
+        user_id=current_user.id,
         action=action_type,
-        policy_text=f"Business Step Action: {'APPROVED' if approved else 'REJECTED'} by {user_role}",
+        policy_text=f"Business Step Action: {'APPROVED' if approved else 'REJECTED'} by {user_role} ({current_user.username})",
         verification_status="passed" if approved else "blocked",
         errors=[] if approved else ["Workflow execution stopped due to human business rejection."],
-        details={"approved": approved, "role": user_role}
+        details={"approved": approved, "role": user_role, "user": current_user.username}
     )
     db.add(audit_entry)
     await db.commit()
@@ -360,7 +364,10 @@ async def api_approve_execution_step(
 
 
 @router.post("/execute/reset")
-async def api_reset_execution(workflow_id: str = Body(..., embed=True)):
+async def api_reset_execution(
+    workflow_id: str = Body(..., embed=True),
+    current_user: User = Depends(get_current_user)
+):
     """Reset execution state."""
     res = execution_simulator.reset_execution(workflow_id)
     if "error" in res:
@@ -455,9 +462,10 @@ async def api_get_compliance_rules(db: AsyncSession = Depends(get_session)):
 @router.post("/compliance-rules")
 async def api_create_compliance_rule(
     rule: ComplianceRule,
+    current_user: User = Depends(require_manager),
     db: AsyncSession = Depends(get_session)
 ):
-    """Add a new compliance rule (supports multi-type: threshold, requirement, approval, role, multi_condition)."""
+    """Add a new compliance rule (Manager role required)."""
     db_rule = ComplianceRuleModel(
         name=rule.name,
         description=rule.description or "",
@@ -473,11 +481,12 @@ async def api_create_compliance_rule(
     # Audit log: rule created
     audit_entry = AuditLog(
         workflow_id="",
+        user_id=current_user.id,
         action="rule_created",
-        policy_text=f"Compliance rule created: {rule.name} (type: {rule.rule_type})",
+        policy_text=f"Compliance rule created by {current_user.username}: {rule.name} (type: {rule.rule_type})",
         verification_status="passed",
         errors=[],
-        details={"rule_name": rule.name, "rule_type": rule.rule_type or "threshold", "threshold": rule.threshold}
+        details={"rule_name": rule.name, "rule_type": rule.rule_type or "threshold", "threshold": rule.threshold, "manager": current_user.username}
     )
     db.add(audit_entry)
     await db.commit()
@@ -500,8 +509,12 @@ async def api_create_compliance_rule(
 
 
 @router.patch("/compliance-rules/{rule_id}/toggle")
-async def api_toggle_compliance_rule(rule_id: int, db: AsyncSession = Depends(get_session)):
-    """Toggle enable/disable a compliance rule."""
+async def api_toggle_compliance_rule(
+    rule_id: int,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_session)
+):
+    """Toggle enable/disable a compliance rule (Manager role required)."""
     result = await db.execute(select(ComplianceRuleModel).where(ComplianceRuleModel.id == rule_id))
     rule = result.scalar_one_or_none()
     if not rule:
@@ -510,11 +523,12 @@ async def api_toggle_compliance_rule(rule_id: int, db: AsyncSession = Depends(ge
     # Audit log: rule toggled
     audit_entry = AuditLog(
         workflow_id="",
+        user_id=current_user.id,
         action="rule_toggled",
-        policy_text=f"Compliance rule '{rule.name}' {'enabled' if rule.active else 'disabled'}",
+        policy_text=f"Compliance rule '{rule.name}' {'enabled' if rule.active else 'disabled'} by {current_user.username}",
         verification_status="passed",
         errors=[],
-        details={"rule_id": rule_id, "rule_name": rule.name, "active": rule.active}
+        details={"rule_id": rule_id, "rule_name": rule.name, "active": rule.active, "manager": current_user.username}
     )
     db.add(audit_entry)
     await db.commit()
@@ -522,8 +536,12 @@ async def api_toggle_compliance_rule(rule_id: int, db: AsyncSession = Depends(ge
 
 
 @router.delete("/compliance-rules/{rule_id}")
-async def api_delete_compliance_rule(rule_id: int, db: AsyncSession = Depends(get_session)):
-    """Delete a compliance rule."""
+async def api_delete_compliance_rule(
+    rule_id: int,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_session)
+):
+    """Delete a compliance rule (Manager role required)."""
     result = await db.execute(select(ComplianceRuleModel).where(ComplianceRuleModel.id == rule_id))
     rule = result.scalar_one_or_none()
     if not rule:
@@ -533,11 +551,12 @@ async def api_delete_compliance_rule(rule_id: int, db: AsyncSession = Depends(ge
     # Audit log: rule deleted
     audit_entry = AuditLog(
         workflow_id="",
+        user_id=current_user.id,
         action="rule_deleted",
-        policy_text=f"Compliance rule deleted: {rule_name}",
+        policy_text=f"Compliance rule deleted by {current_user.username}: {rule_name}",
         verification_status="passed",
         errors=[],
-        details={"rule_id": rule_id, "rule_name": rule_name}
+        details={"rule_id": rule_id, "rule_name": rule_name, "manager": current_user.username}
     )
     db.add(audit_entry)
     await db.commit()
@@ -655,6 +674,7 @@ async def api_save_workflow(
     graph_json: Optional[dict] = Body(None, embed=True),
     status: str = Body("verified", embed=True),
     verification_id: Optional[str] = Body(None, embed=True),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session)
 ):
     """Save or update a workflow in the directory with category and metadata."""
@@ -673,6 +693,8 @@ async def api_save_workflow(
             existing.graph_json = graph_json
         if verification_id:
             existing.verification_id = verification_id
+        if not existing.created_by:
+            existing.created_by = current_user.id
     else:
         wf = Workflow(
             workflow_id=workflow_id,
@@ -683,17 +705,19 @@ async def api_save_workflow(
             ir_json=ir_json or {},
             graph_json=graph_json or {},
             verification_id=verification_id or "",
+            created_by=current_user.id,
         )
         db.add(wf)
 
     # Audit log: workflow saved
     audit_entry = AuditLog(
         workflow_id=workflow_id,
+        user_id=current_user.id,
         action="workflow_saved",
-        policy_text=policy_text or f"Workflow '{name}' saved to directory",
+        policy_text=policy_text or f"Workflow '{name}' saved to directory by {current_user.username}",
         verification_status="passed",
         errors=[],
-        details={"name": name, "category": category, "status": status}
+        details={"name": name, "category": category, "status": status, "user": current_user.username}
     )
     db.add(audit_entry)
     await db.commit()
@@ -701,8 +725,12 @@ async def api_save_workflow(
 
 
 @router.delete("/workflows/{workflow_id}")
-async def api_delete_workflow(workflow_id: str, db: AsyncSession = Depends(get_session)):
-    """Delete a workflow from the directory."""
+async def api_delete_workflow(
+    workflow_id: str,
+    current_user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_session)
+):
+    """Delete a workflow from the directory (Manager role required)."""
     result = await db.execute(select(Workflow).where(Workflow.workflow_id == workflow_id))
     wf = result.scalar_one_or_none()
     if not wf:
@@ -711,11 +739,12 @@ async def api_delete_workflow(workflow_id: str, db: AsyncSession = Depends(get_s
     await db.delete(wf)
     audit_entry = AuditLog(
         workflow_id=workflow_id,
+        user_id=current_user.id,
         action="workflow_deleted",
-        policy_text=f"Workflow '{wf_name}' deleted from directory",
+        policy_text=f"Workflow '{wf_name}' deleted from directory by {current_user.username}",
         verification_status="passed",
         errors=[],
-        details={"workflow_id": workflow_id, "name": wf_name}
+        details={"workflow_id": workflow_id, "name": wf_name, "manager": current_user.username}
     )
     db.add(audit_entry)
     await db.commit()
