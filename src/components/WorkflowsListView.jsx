@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { GitBranch, RefreshCw, X, CheckCircle2, XCircle, FolderOpen, Trash2, ExternalLink, Clock, Tag } from 'lucide-react';
+import { GitBranch, RefreshCw, X, CheckCircle2, XCircle, FolderOpen, Trash2, ExternalLink, Clock, Tag, Play, User } from 'lucide-react';
 import { getWorkflows, deleteWorkflow } from '../api/client';
 
 const STATUS_CONFIG = {
-  verified: { icon: <CheckCircle2 className="w-3 h-3" />, className: 'text-emerald-400 bg-emerald-950/60 border-emerald-700/40' },
-  saved: { icon: <CheckCircle2 className="w-3 h-3" />, className: 'text-indigo-400 bg-indigo-950/60 border-indigo-700/40' },
-  failed: { icon: <XCircle className="w-3 h-3" />, className: 'text-rose-400 bg-rose-950/60 border-rose-700/40' },
-  blocked: { icon: <XCircle className="w-3 h-3" />, className: 'text-orange-400 bg-orange-950/60 border-orange-700/40' },
+  verified: { icon: <CheckCircle2 className="w-3 h-3" />, label: 'VERIFIED', className: 'text-emerald-400 bg-emerald-950/60 border-emerald-700/40' },
+  waiting_for_manager: { icon: <Clock className="w-3 h-3" />, label: 'WAITING FOR MANAGER', className: 'text-amber-400 bg-amber-950/60 border-amber-700/40' },
+  approved: { icon: <CheckCircle2 className="w-3 h-3" />, label: 'MANAGER APPROVED', className: 'text-emerald-400 bg-emerald-950/60 border-emerald-700/40' },
+  rejected: { icon: <XCircle className="w-3 h-3" />, label: 'MANAGER REJECTED', className: 'text-rose-400 bg-rose-950/60 border-rose-700/40' },
+  executing: { icon: <Play className="w-3 h-3" />, label: 'IN PROGRESS', className: 'text-blue-400 bg-blue-950/60 border-blue-700/40' },
+  completed: { icon: <CheckCircle2 className="w-3 h-3" />, label: 'COMPLETED', className: 'text-emerald-400 bg-emerald-950/60 border-emerald-700/40' },
+  saved: { icon: <CheckCircle2 className="w-3 h-3" />, label: 'SAVED', className: 'text-indigo-400 bg-indigo-950/60 border-indigo-700/40' },
+  failed: { icon: <XCircle className="w-3 h-3" />, label: 'FAILED', className: 'text-rose-400 bg-rose-950/60 border-rose-700/40' },
+  blocked: { icon: <XCircle className="w-3 h-3" />, label: 'GATE BLOCKED', className: 'text-orange-400 bg-orange-950/60 border-orange-700/40' },
 };
 
 export default function WorkflowsListView({ onClose, pipelineResult, onLoadWorkflow }) {
@@ -43,6 +48,16 @@ export default function WorkflowsListView({ onClose, pipelineResult, onLoadWorkf
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const extractVendor = (policyText) => {
+    const m = policyText?.match(/from\s+([A-Za-z][A-Za-z\s]+?)(?:\s+for\s|\s+at\s|,|\.)/i);
+    return m ? m[1].trim() : null;
+  };
+
+  const extractAmount = (policyText) => {
+    const m = policyText?.match(/[₹$€][\d,]+(?:\.\d+)?|[\d,]+(?:\.\d+)?\s*(?:Lakhs?|Crores?|thousand|million)/i);
+    return m ? m[0] : null;
   };
 
   // Group workflows by category
@@ -117,6 +132,9 @@ export default function WorkflowsListView({ onClose, pipelineResult, onLoadWorkf
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {wfs.map((wf) => {
                     const statusCfg = STATUS_CONFIG[wf.status] || STATUS_CONFIG.saved;
+                    const vendor = extractVendor(wf.policy_text || wf.description);
+                    const amount = extractAmount(wf.policy_text || wf.description);
+
                     return (
                       <div
                         key={wf.workflow_id}
@@ -131,9 +149,37 @@ export default function WorkflowsListView({ onClose, pipelineResult, onLoadWorkf
                           </div>
                           <span className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${statusCfg.className}`}>
                             {statusCfg.icon}
-                            {wf.status?.toUpperCase() || 'SAVED'}
+                            {statusCfg.label || wf.status?.toUpperCase() || 'SAVED'}
                           </span>
                         </div>
+
+                        {/* Vendor & Amount metadata if present */}
+                        {(vendor || amount) && (
+                          <div className="flex flex-wrap gap-2 text-[10px] pt-0.5">
+                            {vendor && (
+                              <span className="vf-text-secondary">
+                                <span className="vf-text-tertiary">Vendor:</span> <span className="font-medium vf-text-primary">{vendor}</span>
+                              </span>
+                            )}
+                            {amount && (
+                              <span className="vf-text-secondary">
+                                <span className="vf-text-tertiary">Amount:</span> <span className="font-medium vf-text-primary">{amount}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Approval metadata */}
+                        {wf.reviewed_by && (
+                          <div className="text-[10px] text-emerald-400/90 font-medium">
+                            ✓ Reviewed by {wf.reviewed_by}
+                          </div>
+                        )}
+                        {wf.status === 'rejected' && wf.rejection_reason && (
+                          <div className="text-[10px] text-rose-400/90 font-medium truncate">
+                            ✕ Rejection reason: {wf.rejection_reason}
+                          </div>
+                        )}
 
                         {/* Metadata row */}
                         <div className="flex items-center gap-2 flex-wrap">

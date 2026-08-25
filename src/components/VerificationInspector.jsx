@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ShieldCheck, ShieldAlert, Cpu, AlertTriangle, CheckCircle2,
   XCircle, Clock, Zap, BarChart2, Activity, Wrench, Play, Lock,
   HelpCircle, KeyRound, AlertOctagon, Building2, ExternalLink, BadgeCheck,
-  FileSearch, AlertCircle
+  FileSearch, AlertCircle, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 
 const CORE_CHECKS = [
@@ -21,7 +21,28 @@ export default function VerificationInspector({
   onOpenWhatIfModal,
   onExecuteWorkflow,
   isExecuting,
+  currentUser,
+  approvalStatus,
+  // Manager approval action props
+  activeManagerRequest,
+  onApproveRequest,
+  onRejectRequest,
+  isApprovingRequest,
 }) {
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState('');
+
+  const handleConfirmReject = async () => {
+    setRejectError('');
+    try {
+      await onRejectRequest(activeManagerRequest, rejectReason);
+      setShowRejectInput(false);
+      setRejectReason('');
+    } catch (err) {
+      setRejectError(err?.message || 'Rejection failed.');
+    }
+  };
   const verification = pipelineResult?.verification;
   const vendorVerif = pipelineResult?.vendor_verification;
   const workflowIr = pipelineResult?.workflow_ir;
@@ -93,6 +114,54 @@ export default function VerificationInspector({
             <span className="text-[10px] text-emerald-400 font-bold tracking-wider">
               {verification.verification_id}
             </span>
+          </div>
+        )}
+
+        {/* Manager Approval Status Banner */}
+        {approvalStatus && (
+          <div className={`p-2.5 rounded-lg border font-sans space-y-1 ${
+            approvalStatus === 'approved'
+              ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
+              : approvalStatus === 'rejected'
+              ? 'bg-rose-950/40 border-rose-500/50 text-rose-300'
+              : 'bg-amber-950/40 border-amber-500/50 text-amber-300'
+          }`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                {approvalStatus === 'approved' ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Manager Approval: Approved
+                  </>
+                ) : approvalStatus === 'rejected' ? (
+                  <>
+                    <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                    Manager Approval: Rejected
+                  </>
+                ) : (
+                  <>
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    Manager Approval: Pending
+                  </>
+                )}
+              </span>
+              <span className={`badge text-[9px] font-bold ${
+                approvalStatus === 'approved'
+                  ? 'badge-green'
+                  : approvalStatus === 'rejected'
+                  ? 'badge-red'
+                  : 'badge-yellow'
+              }`}>
+                {approvalStatus.toUpperCase()}
+              </span>
+            </div>
+            <p className="text-[10px] opacity-80">
+              {approvalStatus === 'approved'
+                ? 'Workflow has been approved by the Manager and cleared for runtime execution.'
+                : approvalStatus === 'rejected'
+                ? 'Workflow was rejected by the Manager. Execution is blocked.'
+                : 'Workflow verification passed. Awaiting Manager sign-off before execution can start.'}
+            </p>
           </div>
         )}
 
@@ -398,30 +467,117 @@ export default function VerificationInspector({
       </div>
 
       {/* Inspector Footer Actions (Strictly Security Gated) */}
-      <div className="p-3 border-t vf-border vf-bg-secondary flex items-center justify-between gap-2">
-        <button
-          onClick={onOpenWhatIfModal}
-          className="btn btn-secondary text-xs flex-1"
-        >
-          <HelpCircle className="w-3.5 h-3.5 text-amber-400" /> What-If
-        </button>
+      <div className="p-3 border-t vf-border vf-bg-secondary space-y-2">
+        {/* ── Manager reviewing a pending request ── */}
+        {activeManagerRequest && currentUser?.app_role === 'manager' ? (
+          <>
+            {/* Reject reason input (shown when reject is clicked) */}
+            {showRejectInput && (
+              <div className="space-y-1">
+                <input
+                  type="text"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Reason for rejection (optional)"
+                  className="w-full px-2 py-1.5 text-[10px] rounded border vf-border vf-bg-editor vf-text-primary placeholder:vf-text-tertiary focus:outline-none focus:border-rose-500/50"
+                />
+                {rejectError && (
+                  <div className="text-[10px] text-rose-300">{rejectError}</div>
+                )}
+              </div>
+            )}
 
-        {verification?.execution_allowed ? (
-          <button
-            onClick={onExecuteWorkflow}
-            disabled={isExecuting}
-            className="btn btn-primary text-xs flex-1 bg-emerald-600 hover:bg-emerald-500 border-emerald-500 shadow-emerald-900/30"
-          >
-            <Play className="w-3.5 h-3.5" /> Execute
-          </button>
+            <div className="flex items-center gap-1.5">
+              {/* What-If still accessible */}
+              <button
+                onClick={onOpenWhatIfModal}
+                className="btn btn-secondary text-xs"
+                style={{ minWidth: 0, flex: '0 0 auto', padding: '0.25rem 0.5rem' }}
+              >
+                <HelpCircle className="w-3 h-3 text-amber-400" />
+              </button>
+
+              {/* Approve */}
+              <button
+                id={`vf-inspector-approve-${activeManagerRequest.id}`}
+                onClick={() => onApproveRequest && onApproveRequest(activeManagerRequest)}
+                disabled={isApprovingRequest || showRejectInput}
+                className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[10px] font-semibold bg-emerald-900/50 border border-emerald-700/50 text-emerald-300 hover:bg-emerald-800/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isApprovingRequest ? (
+                  <span className="w-3 h-3 border border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                ) : (
+                  <ThumbsUp className="w-3 h-3" />
+                )}
+                Approve
+              </button>
+
+              {/* Reject */}
+              {showRejectInput ? (
+                <>
+                  <button
+                    onClick={handleConfirmReject}
+                    disabled={isApprovingRequest}
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[10px] font-semibold bg-rose-900/50 border border-rose-700/50 text-rose-300 hover:bg-rose-800/60 transition-colors disabled:opacity-50"
+                  >
+                    <XCircle className="w-3 h-3" /> Confirm
+                  </button>
+                  <button
+                    onClick={() => { setShowRejectInput(false); setRejectReason(''); setRejectError(''); }}
+                    className="text-[10px] vf-text-tertiary hover:vf-text-secondary px-1"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  id={`vf-inspector-reject-${activeManagerRequest.id}`}
+                  onClick={() => { setShowRejectInput(true); setRejectError(''); }}
+                  disabled={isApprovingRequest}
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[10px] font-semibold vf-bg-card border vf-border vf-text-secondary hover:border-rose-500/40 hover:text-rose-300 transition-colors disabled:opacity-50"
+                >
+                  <ThumbsDown className="w-3 h-3" /> Reject
+                </button>
+              )}
+            </div>
+          </>
         ) : (
-          <button
-            disabled
-            className="btn btn-disabled-locked text-xs flex-1"
-            title="Execution is locked until all compiler verification checks pass."
-          >
-            <Lock className="w-3.5 h-3.5" /> Execute Locked
-          </button>
+          /* ── Normal footer (Employee or Manager without active review) ── */
+          <div className="flex items-center justify-between gap-2">
+            <button
+              onClick={onOpenWhatIfModal}
+              className="btn btn-secondary text-xs flex-1"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-amber-400" /> What-If
+            </button>
+
+            {verification?.execution_allowed && approvalStatus === 'waiting' && currentUser?.app_role === 'employee' ? (
+              // Employee submitted for approval — execution locked pending manager decision
+              <button
+                disabled
+                className="btn text-xs flex-1 bg-amber-900/40 border border-amber-700/40 text-amber-300 cursor-not-allowed opacity-80"
+                title="Awaiting Manager approval before execution can begin."
+              >
+                <Clock className="w-3.5 h-3.5" /> Awaiting Approval
+              </button>
+            ) : verification?.execution_allowed ? (
+              <button
+                onClick={onExecuteWorkflow}
+                disabled={isExecuting}
+                className="btn btn-primary text-xs flex-1 bg-emerald-600 hover:bg-emerald-500 border-emerald-500 shadow-emerald-900/30"
+              >
+                <Play className="w-3.5 h-3.5" /> Execute
+              </button>
+            ) : (
+              <button
+                disabled
+                className="btn btn-disabled-locked text-xs flex-1"
+                title="Execution is locked until all compiler verification checks pass."
+              >
+                <Lock className="w-3.5 h-3.5" /> Execute Locked
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

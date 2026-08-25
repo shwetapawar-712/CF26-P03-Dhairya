@@ -7,6 +7,18 @@ const api = axios.create({
   },
 });
 
+// ─── JWT Token Interceptor ────────────────────────────────────────────────────
+// Automatically attach the stored Bearer token to every request.
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('vf_access_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// ─── Existing API Functions (unchanged) ──────────────────────────────────────
+
 export const verifyPolicy = async (policyText, scenario = null) => {
   const response = await api.post('/verify', { policy_text: policyText, scenario });
   return response.data;
@@ -121,5 +133,71 @@ export const deleteWorkflow = async (workflowId) => {
 
 export const getWorkflowVersions = async (workflowId) => {
   const response = await api.get(`/workflows/${workflowId}/versions`);
+  return response.data;
+};
+
+// ─── Authentication API ───────────────────────────────────────────────────────
+
+export const login = async (username, password) => {
+  const response = await api.post('/auth/login', { username, password });
+  const { access_token, user } = response.data;
+  // Persist token in localStorage for session restoration
+  localStorage.setItem('vf_access_token', access_token);
+  return user;
+};
+
+export const getCurrentUser = async () => {
+  const token = localStorage.getItem('vf_access_token');
+  if (!token) return null;
+  try {
+    const response = await api.get('/auth/me');
+    return response.data;
+  } catch {
+    // Token expired or invalid — clear it
+    localStorage.removeItem('vf_access_token');
+    return null;
+  }
+};
+
+export const logout = async () => {
+  try {
+    await api.post('/auth/logout');
+  } catch {
+    // Ignore errors — always clear client-side token
+  }
+  localStorage.removeItem('vf_access_token');
+};
+
+// ─── Approval Request API ─────────────────────────────────────────────────────
+
+export const createApprovalRequest = async ({ workflowId, policyText, workflowName, verificationId }) => {
+  const response = await api.post('/approval-requests', {
+    workflow_id: workflowId,
+    policy_text: policyText,
+    workflow_name: workflowName,
+    verification_id: verificationId,
+  });
+  return response.data;
+};
+
+export const getApprovalRequests = async () => {
+  const response = await api.get('/approval-requests');
+  return response.data;
+};
+
+export const getApprovalRequest = async (requestId) => {
+  const response = await api.get(`/approval-requests/${requestId}`);
+  return response.data;
+};
+
+export const approveRequest = async (requestId) => {
+  const response = await api.post(`/approval-requests/${requestId}/approve`);
+  return response.data;
+};
+
+export const rejectRequest = async (requestId, rejectionReason = '') => {
+  const response = await api.post(`/approval-requests/${requestId}/reject`, {
+    rejection_reason: rejectionReason,
+  });
   return response.data;
 };

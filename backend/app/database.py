@@ -29,7 +29,8 @@ async def create_tables():
     """Create all database tables on startup and apply missing schema columns."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migrate existing SQLite databases if columns are missing
+
+        # --- Existing migrations (preserved) ---
         for tbl in ["audit_logs", "workflows"]:
             try:
                 await conn.exec_driver_sql(f"ALTER TABLE {tbl} ADD COLUMN verification_id VARCHAR(100) DEFAULT ''")
@@ -41,6 +42,17 @@ async def create_tables():
             ("workflows", "description", "TEXT DEFAULT ''"),
             ("compliance_rules", "rule_type", "VARCHAR(50) DEFAULT 'threshold'"),
             ("compliance_rules", "threshold", "FLOAT DEFAULT NULL"),
+        ]:
+            try:
+                await conn.exec_driver_sql(f"ALTER TABLE {col_def[0]} ADD COLUMN {col_def[1]} {col_def[2]}")
+            except Exception:
+                pass  # Column already exists
+
+        # --- New auth migrations ---
+        for col_def in [
+            ("users", "app_role", "VARCHAR(50) DEFAULT 'employee'"),
+            ("users", "password_hash", "VARCHAR(255) DEFAULT ''"),
+            ("workflows", "created_by", "INTEGER DEFAULT NULL"),
         ]:
             try:
                 await conn.exec_driver_sql(f"ALTER TABLE {col_def[0]} ADD COLUMN {col_def[1]} {col_def[2]}")

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Sparkles, ShieldCheck, Play, Download, Maximize2,
   Terminal, RefreshCw, CheckCircle2, XCircle, ChevronDown, Video,
-  ArrowLeft, Home, Sun, Moon
+  ArrowLeft, Home, Sun, Moon, LogOut, User
 } from 'lucide-react';
 
 export default function HeaderBar({
@@ -20,6 +20,8 @@ export default function HeaderBar({
   isConsoleOpen,
   onToggleConsole,
   pipelineResult,
+  currentUser,
+  onLogout,
 }) {
   const [showExportMenu, setShowExportMenu] = useState(false);
 
@@ -178,6 +180,31 @@ export default function HeaderBar({
           >
             {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
+        )}
+
+        {/* Current User Display + Logout */}
+        {currentUser && (
+          <div className="flex items-center gap-1.5 pl-1 border-l vf-border">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded vf-bg-card-alt border vf-border text-xs">
+              <User className="w-3 h-3 vf-text-tertiary" />
+              <span className="vf-text-primary font-medium hidden sm:inline">{currentUser.display_name || currentUser.username}</span>
+              <span className={`text-[9px] font-bold px-1 rounded ${
+                currentUser.app_role === 'manager'
+                  ? 'bg-amber-900/50 text-amber-300 border border-amber-700/40'
+                  : 'bg-indigo-900/50 text-indigo-300 border border-indigo-700/40'
+              }`}>
+                {currentUser.app_role?.toUpperCase()}
+              </span>
+            </div>
+            <button
+              onClick={onLogout}
+              className="p-1.5 rounded text-xs transition-colors cursor-pointer vf-text-secondary hover:text-rose-300 hover:bg-rose-900/20"
+              title="Sign Out"
+              aria-label="Logout"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
 
         {/* Workspace Layout Toggles */}

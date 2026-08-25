@@ -10,7 +10,7 @@ from sqlalchemy import select, desc
 
 from app.database import get_session
 from app.models.database_models import (
-    Policy, Workflow, WorkflowVersion, AuditLog, ComplianceRuleModel, User
+    Policy, Workflow, WorkflowVersion, AuditLog, ComplianceRuleModel, User, ApprovalRequest
 )
 from app.schemas.workflow import ParsedPolicy, WorkflowIR
 from app.schemas.verification import VerificationResult, PipelineResult
@@ -215,24 +215,62 @@ async def api_run_what_if(
 
 @router.post("/execute/create")
 async def api_create_execution(
-    workflow_ir: dict = Body(...),
-    verification_id: Optional[str] = Body(None),
+    workflow_ir: dict = Body(..., embed=True),
+    verification_id: Optional[str] = Body(None, embed=True),
+    workflow_id: Optional[str] = Body(None, embed=True),
     db: AsyncSession = Depends(get_session)
 ):
     """
     Initialize an execution state for a workflow IR.
-    SECURITY GATED: Strictly rejects unverified workflows.
+    SECURITY GATED:
+    1. Rejects unverified workflows.
+    2. Rejects workflows that are still waiting for manager approval
+       (i.e., no approved ApprovalRequest exists for this workflow).
     """
     try:
         ir_obj = WorkflowIR(**workflow_ir)
-        wf_id = f"wf_{uuid.uuid4().hex[:8]}"
+        wf_id = workflow_id
+        workflow_row = None
 
-        # Validate verification
+        # ── Manager Approval Gate & Workflow Association ───────────────────────
+        if verification_id:
+            wf_result = await db.execute(
+                select(Workflow).where(Workflow.verification_id == verification_id)
+            )
+            workflow_row = wf_result.scalar_one_or_none()
+            if workflow_row:
+                wf_id = workflow_row.workflow_id
+                if workflow_row.status == "waiting_for_manager":
+                    # Check for an approved request
+                    apr_result = await db.execute(
+                        select(ApprovalRequest).where(
+                            ApprovalRequest.workflow_id == workflow_row.workflow_id,
+                            ApprovalRequest.status == "approved",
+                        )
+                    )
+                    approved_req = apr_result.scalar_one_or_none()
+                    if not approved_req:
+                        raise PermissionError(
+                            "Execution blocked: workflow is awaiting manager approval. "
+                            "A manager must approve this workflow before it can be executed."
+                        )
+        elif wf_id:
+            wf_result = await db.execute(select(Workflow).where(Workflow.workflow_id == wf_id))
+            workflow_row = wf_result.scalar_one_or_none()
+
+        if not wf_id:
+            wf_id = f"wf_{uuid.uuid4().hex[:8]}"
+
+        # Validate verification token and create execution
         state = execution_simulator.create_execution(
             workflow_id=wf_id,
             ir=ir_obj,
             verification_id=verification_id
         )
+
+        # Update workflow status in DB if exists
+        if workflow_row and workflow_row.status in ("approved", "verified"):
+            workflow_row.status = "executing"
 
         # Record audit log
         audit_entry = AuditLog(
@@ -267,8 +305,15 @@ async def api_step_execution(
     if "error" in res:
         raise HTTPException(status_code=403, detail=res["error"])
 
-    # Audit log step progression
+    # Update workflow status if complete
     try:
+        if res.get("is_complete"):
+            wf_res = await db.execute(select(Workflow).where(Workflow.workflow_id == workflow_id))
+            wf_row = wf_res.scalar_one_or_none()
+            if wf_row:
+                wf_row.status = "completed"
+
+        # Audit log step progression
         audit_entry = AuditLog(
             workflow_id=workflow_id,
             action="execute_step",
@@ -324,10 +369,27 @@ async def api_reset_execution(workflow_id: str = Body(..., embed=True)):
 
 
 @router.get("/execute/state/{workflow_id}")
-async def api_get_execution_state(workflow_id: str):
-    """Fetch current execution state."""
+async def api_get_execution_state(
+    workflow_id: str,
+    db: AsyncSession = Depends(get_session)
+):
+    """Fetch current execution state, rehydrating from DB if needed."""
     res = execution_simulator.get_execution_state(workflow_id)
     if "error" in res:
+        # Check if workflow exists in DB and can be loaded
+        wf_result = await db.execute(select(Workflow).where(Workflow.workflow_id == workflow_id))
+        workflow_row = wf_result.scalar_one_or_none()
+        if workflow_row and workflow_row.ir_json and workflow_row.status in ("approved", "executing", "completed", "verified"):
+            try:
+                ir_obj = WorkflowIR(**workflow_row.ir_json)
+                state = execution_simulator.create_execution(
+                    workflow_id=workflow_row.workflow_id,
+                    ir=ir_obj,
+                    verification_id=workflow_row.verification_id
+                )
+                return state
+            except Exception:
+                pass
         raise HTTPException(status_code=404, detail=res["error"])
     return res
 
@@ -508,6 +570,14 @@ async def api_get_audit_logs(
         "rule_toggled": "Compliance Rule Toggled",
         "workflow_saved": "Workflow Saved",
         "workflow_deleted": "Workflow Deleted",
+        # Auth events
+        "login": "User Login",
+        "login_failed": "Login Failed",
+        # Approval events
+        "workflow_submitted_for_approval": "Workflow Submitted for Manager Approval",
+        "manager_opened_request": "Manager Opened Approval Request",
+        "manager_approved_workflow": "Manager Approved Workflow",
+        "manager_rejected_workflow": "Manager Rejected Workflow",
     }
 
     return [
@@ -534,23 +604,44 @@ async def api_get_audit_logs(
 
 @router.get("/workflows")
 async def api_list_workflows(db: AsyncSession = Depends(get_session)):
-    """List all compiled/saved workflows with metadata."""
+    """List all compiled/saved workflows with metadata, approval status, and execution details."""
     result = await db.execute(select(Workflow).order_by(desc(Workflow.created_at)))
     workflows = result.scalars().all()
-    return [
-        {
+    out = []
+    for w in workflows:
+        apr_res = await db.execute(
+            select(ApprovalRequest)
+            .where(ApprovalRequest.workflow_id == w.workflow_id)
+            .order_by(desc(ApprovalRequest.created_at))
+        )
+        apr = apr_res.scalars().first()
+
+        ver_res = await db.execute(
+            select(WorkflowVersion)
+            .where(WorkflowVersion.workflow_id == w.workflow_id)
+            .order_by(desc(WorkflowVersion.version))
+        )
+        ver = ver_res.scalars().first()
+        policy_text = apr.policy_text if (apr and apr.policy_text) else (ver.policy_text if ver else (w.description or ""))
+
+        out.append({
             "workflow_id": w.workflow_id,
-            "verification_id": w.verification_id or "",
+            "verification_id": w.verification_id or (apr.verification_id if apr else ""),
             "name": w.name,
             "category": getattr(w, 'category', 'General') or 'General',
             "description": getattr(w, 'description', '') or '',
             "status": w.status,
+            "approval_status": apr.status if apr else None,
+            "approval_request_id": apr.id if apr else None,
+            "reviewed_by": apr.reviewed_by if apr else "",
+            "reviewed_at": apr.reviewed_at.isoformat() if (apr and apr.reviewed_at) else None,
+            "rejection_reason": apr.rejection_reason if apr else "",
+            "policy_text": policy_text,
             "created_at": w.created_at.isoformat() if w.created_at else None,
-            "ir_json": w.ir_json,
+            "ir_json": w.ir_json or {},
             "graph_json": w.graph_json or {},
-        }
-        for w in workflows
-    ]
+        })
+    return out
 
 
 @router.post("/workflows/save")

@@ -12,11 +12,23 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(100), unique=True, nullable=False)
     display_name = Column(String(200), default="")
-    role = Column(String(100), default="user")
+    role = Column(String(100), default="user")           # legacy / workflow role field
+    app_role = Column(String(50), default="employee")    # application role: employee | manager
+    password_hash = Column(String(255), default="")      # bcrypt hash
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     audit_logs = relationship("AuditLog", back_populates="user_rel")
+    submitted_approvals = relationship(
+        "ApprovalRequest",
+        foreign_keys="ApprovalRequest.employee_id",
+        back_populates="employee_rel",
+    )
+    managed_approvals = relationship(
+        "ApprovalRequest",
+        foreign_keys="ApprovalRequest.manager_id",
+        back_populates="manager_rel",
+    )
 
 
 class Policy(Base):
@@ -45,7 +57,10 @@ class Workflow(Base):
     policy_id = Column(Integer, ForeignKey("policies.id"), nullable=True)
     ir_json = Column(JSON, default=dict)
     graph_json = Column(JSON, default=dict)
-    status = Column(String(50), default="pending")  # pending, verified, blocked, executing, completed
+    # status: pending, verified, blocked, executing, completed,
+    #         waiting_for_manager, approved, rejected
+    status = Column(String(50), default="pending")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # employee user id
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -53,6 +68,31 @@ class Workflow(Base):
     policy_rel = relationship("Policy", back_populates="workflows")
     versions = relationship("WorkflowVersion", back_populates="workflow_rel")
     executions = relationship("Execution", back_populates="workflow_rel")
+    approval_requests = relationship("ApprovalRequest", back_populates="workflow_rel")
+
+
+class ApprovalRequest(Base):
+    """Manager approval gate between verification and execution."""
+    __tablename__ = "approval_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_id = Column(String(100), ForeignKey("workflows.workflow_id"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # status: pending, approved, rejected
+    status = Column(String(20), default="pending")
+    policy_text = Column(Text, default="")          # snapshot of the original policy
+    workflow_name = Column(String(200), default="")
+    verification_id = Column(String(100), default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(String(200), nullable=True)  # display name
+    rejection_reason = Column(Text, default="")
+
+    # Relationships
+    workflow_rel = relationship("Workflow", back_populates="approval_requests")
+    employee_rel = relationship("User", foreign_keys=[employee_id], back_populates="submitted_approvals")
+    manager_rel = relationship("User", foreign_keys=[manager_id], back_populates="managed_approvals")
 
 
 class WorkflowVersion(Base):
@@ -93,7 +133,7 @@ class AuditLog(Base):
     workflow_id = Column(String(100), default="")
     verification_id = Column(String(100), default="")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    action = Column(String(100), nullable=False)  # submit, verify, execute, fail
+    action = Column(String(100), nullable=False)  # submit, verify, execute, fail, login, approval_*
     policy_text = Column(Text, default="")
     verification_status = Column(String(50), default="pending")
     errors = Column(JSON, default=list)
